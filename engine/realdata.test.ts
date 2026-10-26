@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG, prepare, runBacktest, seriesFromBuffer, type Config, type Series, type Trade } from "./index";
+import { gradeAtLeast } from "./backtest";
 
 const buf = readFileSync(new URL("../public/data/eurusd-15m.bin", import.meta.url));
 const full = seriesFromBuffer(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
@@ -26,18 +27,24 @@ function indexOf(s: Series, t: number) {
   return -1;
 }
 
+const CLASSIC: Partial<Config> = { requireKeyLevel: false, stop: "sweep", stopBuffer: 0, partialAtTp1: true, minR: 0, fullR: 0, maxR: 1000, maxPerDay: 0 };
+
 const CONFIGS: [string, Partial<Config>][] = [
   ["default", {}],
+  ["default, 1 trade a day, any grade", { maxPerDay: 1, lowRGrade: "any" }],
+  ["first version's rules", CLASSIC],
   ["no bias, no zone", { bias: "off", zone: "off" }],
-  ["gap only, next day", { bias: "weeklyCrt", zone: "fvg", timing: "nextDay" }],
-  ["order block, same day", { bias: "structure", zone: "ob", timing: "sameDay", partialAtTp1: false }],
-  ["pullback stop, London and New York", { stop: "pullback", sessions: ["london", "newyork"], timeStop: false }]
+  ["gap only, next day", { ...CLASSIC, bias: "weeklyCrt", zone: "fvg", timing: "nextDay" }],
+  ["order block, same day", { ...CLASSIC, bias: "structure", zone: "ob", timing: "sameDay", partialAtTp1: false }],
+  ["pullback stop, London and New York", { ...CLASSIC, stop: "pullback", sessions: ["london", "newyork"], timeStop: false }],
+  ["no bias, daily key levels only", { bias: "off", keyLevelTfs: ["d1"], partialAtTp1: true }]
 ];
 
 const entryFields = (x: Trade) => ({
-  dir: x.dir, entryT: x.entryT, entry: x.entry, stop: x.stop, tp1: x.tp1, tp2: x.tp2,
-  sweepT: x.sweepT, sweepPrice: x.sweepPrice, mssLevel: x.mssLevel, mssT: x.mssT,
-  touchT: x.touchT, zone: x.zone, bias: x.bias, sameDay: x.sameDay
+  dir: x.dir, entryT: x.entryT, entry: x.entry, stop: x.stop, tp1: x.tp1, tp2: x.tp2, partial: x.partial,
+  sweepT: x.sweepT, sweepPrice: x.sweepPrice, mssLevel: x.mssLevel, mssT: x.mssT, plannedR: x.plannedR,
+  touchT: x.touchT, zone: x.zone, bias: x.bias, sameDay: x.sameDay,
+  keyLevel: x.keyLevel, conf: x.conf, score: x.score, grade: x.grade
 });
 
 describe.each(CONFIGS)("real EURUSD, %s", (_name, over) => {
@@ -56,14 +63,18 @@ describe.each(CONFIGS)("real EURUSD, %s", (_name, over) => {
       expect(again, `trade ${tr.id}`).toBeDefined();
       expect(entryFields(again!)).toEqual(entryFields(tr));
     }
-  });
+  }, 120_000);
 
   it("keeps every trade's prices and times in order", () => {
     for (const tr of res.trades) {
       const d = tr.dir;
       expect(d * (tr.entry - tr.stop), `risk ${tr.id}`).toBeGreaterThan(0);
       expect(d * (tr.tp1 - tr.entry), `tp1 ${tr.id}`).toBeGreaterThan(0);
-      expect(d * (tr.tp2 - tr.tp1), `tp2 ${tr.id}`).toBeGreaterThan(0);
+      expect(d * (tr.tp2 - tr.entry), `tp2 ${tr.id}`).toBeGreaterThan(0);
+      expect(tr.plannedR).toBeGreaterThanOrEqual(cfg.minR - 1e-9);
+      expect(tr.plannedR).toBeLessThanOrEqual(cfg.maxR + 1e-9);
+      if (tr.plannedR < cfg.fullR - 1e-9) expect(gradeAtLeast(tr.grade, cfg.lowRGrade)).toBe(true);
+      if (cfg.requireKeyLevel) expect(tr.keyLevel).not.toBeNull();
       expect(tr.sweepDayT).toBeLessThanOrEqual(tr.sweepT);
       expect(tr.sweepT).toBeLessThan(tr.entryT);
       expect(tr.mssT).toBeLessThan(tr.entryT);
@@ -79,15 +90,26 @@ describe.each(CONFIGS)("real EURUSD, %s", (_name, over) => {
     }
   });
 
+  it("keeps to the most trades a day", () => {
+    if (!cfg.maxPerDay) return;
+    const perDay = new Map<number, number>();
+    for (const tr of res.trades) {
+      const day = Math.floor((tr.entryT - 900) / 86400);
+      perDay.set(day, (perDay.get(day) ?? 0) + 1);
+    }
+    expect(Math.max(...perDay.values())).toBeLessThanOrEqual(cfg.maxPerDay);
+  });
+
   it("adds up", () => {
     const f = res.funnel;
     expect(f.entries).toBe(res.trades.length);
     expect(res.seen.trades + res.unseen.trades).toBe(res.trades.length);
     expect(res.seen.totalR + res.unseen.totalR).toBeCloseTo(res.all.totalR, 6);
+    if (cfg.requireKeyLevel) expect(f.keyLevels).toBeLessThanOrEqual(f.sweeps);
     if (cfg.zone !== "off") {
-      expect(f.zones).toBeLessThanOrEqual(f.sweeps);
+      expect(f.zones).toBeLessThanOrEqual(cfg.requireKeyLevel ? f.keyLevels : f.sweeps);
       expect(f.touches).toBeLessThanOrEqual(f.zones);
-      expect(f.entries + f.skippedNews + f.skippedSession + f.skippedPastMid).toBeLessThanOrEqual(f.touches);
+      expect(f.entries + f.skippedNews + f.skippedSession + f.skippedPastMid + f.skippedLowR + f.skippedDailyCap).toBeLessThanOrEqual(f.touches);
     }
   });
 });

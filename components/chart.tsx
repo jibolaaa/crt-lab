@@ -100,9 +100,14 @@ export function TradeChart({ trade, candles, digits }: { trade: Trade; candles: 
       line(trade.mid, gold, "50%", true);
       line(trade.entry, paper, "Entry");
       line(trade.stop, down, "Stop", true);
+      line(trade.tp2, up, "Target");
 
       const iEntry = at(T, trade.entryT - 900);
       const shapes: Shape[] = [];
+      if (trade.keyLevel) {
+        // the higher-timeframe level the sweep reached, from the start of the chart to the entry
+        shapes.push({ kind: "box", i1: at(T, trade.keyLevel.t), i2: iEntry, p1: trade.keyLevel.top, p2: trade.keyLevel.bottom, fill: "rgba(154,163,176,0.12)", stroke: "rgba(154,163,176,0.55)" });
+      }
       if (trade.zone) {
         const start = Math.min(trade.zone.ob?.t ?? Infinity, trade.zone.fvg?.t ?? Infinity, trade.zone.t);
         shapes.push({ kind: "box", i1: at(T, start), i2: iEntry, p1: trade.zone.top, p2: trade.zone.bottom, fill: "rgba(227,176,75,0.13)", stroke: "rgba(227,176,75,0.55)" });

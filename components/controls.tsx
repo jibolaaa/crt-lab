@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useId, useState } from "react";
-import type { Config, Session } from "../engine";
-import { HISTORY, MARKETS, type Market } from "../lib/markets";
+import type { Config, Grade, LevelKind, Session, Tf } from "../engine";
+import { HISTORY, MARKETS, type Market, type Spec } from "../lib/markets";
+import type { MoneyCfg } from "../lib/money";
 import type { DataInfo } from "../lib/protocol";
 import { fmtDate, fmtInt, fmtSpan } from "../lib/format";
 
@@ -17,13 +18,20 @@ interface Props {
   cfg: Config;
   update: (c: Partial<Config>) => void;
   reset: () => void;
-  risk: number;
-  setRisk: (r: number) => void;
+  money: MoneyCfg;
+  setMoney: (m: Partial<MoneyCfg>) => void;
+  spec: Spec;
+  setSpec: (s: Partial<Spec>) => void;
 }
 
 const GROUPS = [...new Set(MARKETS.map((m) => m.group))];
 
 export function Controls(p: Props) {
+  const c = p.cfg, u = p.update, m = p.market;
+  const toggleIn = <T extends string>(list: T[], v: T, on: boolean) => {
+    const next = on ? [...list, v] : list.filter((x) => x !== v);
+    return next.length ? next : list; // keep at least one
+  };
   return (
     <>
       <section className="sec-data" aria-labelledby="data-h">
@@ -31,15 +39,15 @@ export function Controls(p: Props) {
         <div className="panel">
           <div className="field">
             <label htmlFor="market">Prices to test on</label>
-            <select id="market" className="select" value={p.market.id} onChange={(e) => p.onMarket(e.target.value)}>
+            <select id="market" className="select" value={m.id} onChange={(e) => p.onMarket(e.target.value)}>
               {GROUPS.map((g) => (
                 <optgroup key={g} label={g === "Built in" ? "Built in, loads fast" : `${g}, live from Deriv`}>
-                  {MARKETS.filter((m) => m.group === g).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  {MARKETS.filter((x) => x.group === g).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                 </optgroup>
               ))}
             </select>
           </div>
-          {p.market.source === "deriv" && (
+          {m.source === "deriv" && (
             <div className="field">
               <label htmlFor="months">How far back</label>
               <select id="months" className="select" value={p.months} onChange={(e) => p.onMonths(Number(e.target.value))}>
@@ -57,14 +65,14 @@ export function Controls(p: Props) {
           {p.loadError && (
             <>
               <p className="error" role="alert">{p.loadError}</p>
-              {p.market.source === "deriv" && <p className="data-meta">Check your connection and try again. If it keeps failing, Deriv may be down or blocked on this network. The built-in EUR/USD still works without it.</p>}
+              {m.source === "deriv" && <p className="data-meta">Check your connection and try again. If it keeps failing, Deriv may be down or blocked on this network. The built-in EUR/USD still works without it.</p>}
               <button className="btn quiet small more" onClick={p.onRetry}>Try again</button>
             </>
           )}
           {p.data && !p.loading && (
             <p className="data-meta">
               <strong>{fmtInt(p.data.count)}</strong> fifteen-minute candles, {fmtDate(p.data.from)} to {fmtDate(p.data.to - 900)} ({fmtSpan(p.data.from, p.data.to)}).
-              {p.market.source === "builtin" ? " Dukascopy bid prices." : " Deriv's own price feed, which can differ slightly from MT5."}
+              {m.source === "builtin" ? " Dukascopy bid prices." : " Deriv's own price feed, which can differ slightly from MT5."}
             </p>
           )}
           {p.data?.shortBy && !p.loading && <p className="warn">{p.data.shortBy} Testing what loaded.</p>}
@@ -77,55 +85,119 @@ export function Controls(p: Props) {
           <button className="linkbtn" onClick={p.reset}>Back to my rules</button>
         </div>
         <div className="panel">
+          <h3 className="sub">Direction</h3>
           <Choice
-            legend="Weekly bias" name="bias" value={p.cfg.bias} onChange={(v) => p.update({ bias: v })}
+            legend="Weekly bias" name="bias" value={c.bias} onChange={(v) => u({ bias: v })}
             options={[["majority", "2 of 3 agree"], ["allAgree", "All 3 agree"], ["weeklyCrt", "Weekly CRT"], ["structure", "Structure"], ["premiumDiscount", "Premium/discount"], ["off", "Off"]]}
             hint="Weekly CRT: last week took one side of the week before and closed back inside. Structure: the last weekly close broke a weekly swing. Premium/discount: buy below the middle of the weekly range, sell above it. Only finished weeks count."
           />
           <Choice
-            legend="1-hour zone" name="zone" value={p.cfg.zone} onChange={(v) => p.update({ zone: v })}
-            options={[["obFvg", "Order block + gap"], ["fvg", "Gap only"], ["ob", "Order block only"], ["off", "No zone"]]}
-            hint="After the sweep, wait for a 1-hour zone to form, then for price to come back into it before looking for the shift."
-          />
-          <Choice
-            legend="Entry day" name="timing" value={p.cfg.timing} onChange={(v) => p.update({ timing: v })}
-            options={[["either", "Either"], ["sameDay", "Sweep day"], ["nextDay", "Next day"]]}
-            hint="Next day only counts if the sweep day closed back inside the range."
-          />
-          <Choice
-            legend="15-minute swing size" name="swing" value={String(p.cfg.swing15)} onChange={(v) => p.update({ swing15: Number(v) })}
-            options={[["1", "1 candle"], ["2", "2 candles"], ["3", "3 candles"]]}
-            hint="How many candles each side make a swing high or low. The shift is a close beyond the last swing before the low (high for sells)."
-          />
-          <Choice
-            legend="Stop" name="stop" value={p.cfg.stop} onChange={(v) => p.update({ stop: v })}
-            options={[["sweep", "Beyond the sweep"], ["pullback", "Beyond the pullback"]]}
-            hint="The pullback is the dip into the zone just before the shift. It's closer, so the risk is smaller, but it gets hit more."
-          />
-
-          <hr className="divider" />
-          <Toggle label="Take half at 50%" hint="The stop then moves to the entry price." checked={p.cfg.partialAtTp1} onChange={(v) => p.update({ partialAtTp1: v })} />
-          <Toggle label="Close at the end of day 3" hint="Whatever is still open closes when the day after the sweep ends." checked={p.cfg.timeStop} onChange={(v) => p.update({ timeStop: v })} />
-          {p.cfg.usdNews && (
-            <Toggle label="Rest on US jobs report days" hint="No new trades on NFP days. Other red folder news isn't in the calendar yet." checked={p.cfg.newsGuard} onChange={(v) => p.update({ newsGuard: v })} />
-          )}
-
-          <Sessions value={p.cfg.sessions} onChange={(s) => p.update({ sessions: s })} />
-          <Choice
-            legend="Daily candle starts at" name="day" value={p.cfg.dayStart} onChange={(v) => p.update({ dayStart: v })}
+            legend="Daily candle starts at" name="day" value={c.dayStart} onChange={(v) => u({ dayStart: v })}
             options={[["utc", "Midnight UTC"], ["nyClose", "5pm New York"]]}
             hint="Deriv's MT5 charts use midnight UTC. Many other brokers use 5pm New York."
           />
 
           <hr className="divider" />
+          <h3 className="sub">Candle 2&apos;s sweep</h3>
+          <Toggle
+            label="Must sweep into a key level"
+            hint="Candle 2 takes candle 1's high or low and reaches a fresh higher-timeframe level past it, without running far through it."
+            checked={c.requireKeyLevel} onChange={(v) => u({ requireKeyLevel: v })}
+          />
+          <Multi
+            legend="Key levels from" values={c.keyLevelTfs} disabled={!c.requireKeyLevel}
+            options={[["h4", "4-hour"], ["d1", "Daily"], ["w1", "Weekly"]] as [Tf, string][]}
+            onChange={(v, on) => u({ keyLevelTfs: toggleIn(c.keyLevelTfs, v, on) })}
+          />
+          <Multi
+            legend="Kinds of level" values={c.keyLevelKinds} disabled={!c.requireKeyLevel}
+            options={[["ob", "Order block"], ["breaker", "Breaker block"], ["fvg", "Fair value gap"]] as [LevelKind, string][]}
+            onChange={(v, on) => u({ keyLevelKinds: toggleIn(c.keyLevelKinds, v, on) })}
+            hint="Fresh means price hadn't come back to it on an earlier day. A level stops counting once a candle of its own timeframe closes through it."
+          />
+
+          <hr className="divider" />
+          <h3 className="sub">The entry</h3>
+          <Choice
+            legend="1-hour zone" name="zone" value={c.zone} onChange={(v) => u({ zone: v })}
+            options={[["obFvg", "Order block + gap"], ["fvg", "Gap only"], ["ob", "Order block only"], ["off", "No zone"]]}
+            hint="After the sweep, wait for a 1-hour zone to form, then for price to come back into it before looking for the shift."
+          />
+          <Choice
+            legend="Entry day" name="timing" value={c.timing} onChange={(v) => u({ timing: v })}
+            options={[["either", "Either"], ["sameDay", "Sweep day"], ["nextDay", "Next day"]]}
+            hint="Next day only counts if the sweep day closed back inside the range."
+          />
+          <Choice
+            legend="15-minute swing size" name="swing" value={String(c.swing15)} onChange={(v) => u({ swing15: Number(v) })}
+            options={[["1", "1 candle"], ["2", "2 candles"], ["3", "3 candles"]]}
+            hint="How many candles each side make a swing high or low. The shift is a close beyond the last swing before the low (high for sells)."
+          />
+          <Sessions value={c.sessions} onChange={(s) => u({ sessions: s })} />
+          {c.usdNews && (
+            <Toggle label="Rest on US jobs report days" hint="No new trades on NFP days. Other red folder news isn't in the calendar yet." checked={c.newsGuard} onChange={(v) => u({ newsGuard: v })} />
+          )}
+
+          <hr className="divider" />
+          <h3 className="sub">Stop and target</h3>
+          <Choice
+            legend="Stop" name="stop" value={c.stop} onChange={(v) => u({ stop: v })}
+            options={[["ob", "Beyond the 1H order block"], ["sweep", "Beyond the sweep"], ["pullback", "Beyond the pullback"]]}
+            hint="The 1H order block is the one in the entry zone. With a gap-only zone the stop goes beyond the gap, and with no zone beyond the sweep."
+          />
           <div className="numrow">
-            <NumberField
-              label="Spread" unit={p.market.unitName} value={p.cfg.spread / p.market.unit} min={0} max={1e6}
-              onChange={(v) => p.update({ spread: v * p.market.unit })}
-            />
-            <NumberField label="Risk per trade" unit="%" value={p.risk} min={0.1} max={10} onChange={p.setRisk} />
+            <NumberField label="Stop buffer" unit={m.unitName} value={c.stopBuffer / m.unit} min={0} max={1e6} onChange={(v) => u({ stopBuffer: v * m.unit })} />
+            <NumberField label="Spread" unit={m.unitName} value={c.spread / m.unit} min={0} max={1e6} onChange={(v) => u({ spread: v * m.unit })} />
           </div>
-          <span className="hint">The spread is an estimate. Copy yours from the MT5 app for this market. Risk per trade only changes the account growth figure.</span>
+          <span className="hint">The target is the liquidity at the far end of candle 1. The spread is an estimate: copy yours from the MT5 app.</span>
+          <div className="numrow" style={{ marginTop: 14 }}>
+            <NumberField label="Skip under" unit="R" value={c.minR} min={0} max={100} onChange={(v) => u({ minR: v })} />
+            <NumberField label="Cap the target at" unit="R" value={c.maxR >= 1000 ? 0 : c.maxR} min={0} max={100} onChange={(v) => u({ maxR: v > 0 ? v : 1000 })} />
+          </div>
+          <span className="hint">0 means no cap.</span>
+          <div className="numrow" style={{ marginTop: 14 }}>
+            <NumberField label="Below this, need a grade" unit="R" value={c.fullR} min={0} max={100} onChange={(v) => u({ fullR: v })} />
+          </div>
+          <Choice
+            legend="Grade needed below that" name="lowg" value={c.lowRGrade} onChange={(v) => u({ lowRGrade: v as Grade | "any" })}
+            options={[["A+", "A+ (all)"], ["A", "A or better"], ["B", "B or better"], ["any", "Any"]]}
+          />
+          <Toggle label="Take half at 50%" hint="Half closes at the middle of candle 1, and the stop moves to the entry price." checked={c.partialAtTp1} onChange={(v) => u({ partialAtTp1: v })} />
+          <Toggle label="Close at the end of day 3" hint="Whatever is still open closes when the day after the sweep ends." checked={c.timeStop} onChange={(v) => u({ timeStop: v })} />
+          <div className="numrow">
+            <NumberField label="Most trades a day" unit="trades" value={c.maxPerDay} min={0} max={50} onChange={(v) => u({ maxPerDay: Math.round(v) })} />
+          </div>
+          <span className="hint">0 means no limit.</span>
+        </div>
+      </section>
+
+      <section className="sec-account" aria-labelledby="acct-h">
+        <h2 className="sec" id="acct-h">Your account</h2>
+        <div className="panel">
+          <div className="numrow">
+            <NumberField label="Account size" unit="$" value={p.money.account} min={1} max={1e9} onChange={(v) => p.setMoney({ account: v })} />
+            <NumberField label="Leverage 1:" unit="" value={p.money.leverage} min={1} max={5000} onChange={(v) => p.setMoney({ leverage: v })} />
+          </div>
+          <Choice
+            legend="Size each trade by" name="mode" value={p.money.mode} onChange={(v) => p.setMoney({ mode: v })}
+            options={[["lots", "Fixed lots"], ["risk", "Share of the balance"]]}
+          />
+          <div className="numrow">
+            {p.money.mode === "lots"
+              ? <NumberField label="Lots" unit="lots" value={p.money.lots} min={0.001} max={1000} onChange={(v) => p.setMoney({ lots: v })} />
+              : <NumberField label="Risk per trade" unit="%" value={p.money.riskPct} min={0.01} max={100} onChange={(v) => p.setMoney({ riskPct: v })} />}
+          </div>
+          <details className="spec">
+            <summary>Contract for {m.name}</summary>
+            <div className="numrow">
+              <NumberField label="Contract size" unit="per lot" value={p.spec.contract} min={0.0001} max={1e9} onChange={(v) => p.setSpec({ contract: v })} />
+              <NumberField label="Smallest lot" unit="lots" value={p.spec.minLot} min={0.0001} max={100} onChange={(v) => p.setSpec({ minLot: v })} />
+            </div>
+            <div className="numrow" style={{ marginTop: 10 }}>
+              <NumberField label="Lot step" unit="lots" value={p.spec.lotStep} min={0.0001} max={100} onChange={(v) => p.setSpec({ lotStep: v })} />
+            </div>
+            <span className="hint">Starting values. Check them in your MT5 app: open the market and tap Specification.</span>
+          </details>
         </div>
       </section>
     </>
@@ -141,6 +213,24 @@ function Choice<T extends string>(p: { legend: string; name: string; value: T; o
         {p.options.map(([v, label]) => (
           <label key={v} className="chip">
             <input type="radio" name={`${id}-${p.name}`} value={v} checked={p.value === v} onChange={() => p.onChange(v)} />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
+      {p.hint && <span className="hint" id={`${id}-hint`}>{p.hint}</span>}
+    </fieldset>
+  );
+}
+
+function Multi<T extends string>(p: { legend: string; values: T[]; options: [T, string][]; onChange: (v: T, on: boolean) => void; hint?: string; disabled?: boolean }) {
+  const id = useId();
+  return (
+    <fieldset className="group" aria-describedby={p.hint ? `${id}-hint` : undefined} disabled={p.disabled}>
+      <legend>{p.legend}</legend>
+      <div className="chips">
+        {p.options.map(([v, label]) => (
+          <label key={v} className="chip">
+            <input type="checkbox" checked={p.values.includes(v)} onChange={(e) => p.onChange(v, e.target.checked)} />
             <span>{label}</span>
           </label>
         ))}
@@ -195,7 +285,7 @@ function Sessions(p: { value: Session[]; onChange: (s: Session[]) => void }) {
 
 function NumberField(p: { label: string; unit: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
   const id = useId();
-  const shown = String(+p.value.toFixed(4));
+  const shown = String(+p.value.toFixed(6));
   const [text, setText] = useState(shown);
   useEffect(() => setText(shown), [shown]);
   return (
@@ -211,7 +301,7 @@ function NumberField(p: { label: string; unit: string; value: number; min: numbe
           }}
           onBlur={() => setText(shown)}
         />
-        <small>{p.unit}</small>
+        {p.unit && <small>{p.unit}</small>}
       </div>
     </div>
   );

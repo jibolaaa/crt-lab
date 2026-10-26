@@ -1,17 +1,20 @@
 "use client";
 import { useMemo } from "react";
-import { compound, type Config, type RunResult, type Stats } from "../engine";
+import { CONFLUENCES, type Config, type Grade, type RunResult, type Stats, type Trade } from "../engine";
 import type { Market } from "../lib/markets";
+import { fmtUsd, type MoneyCfg, type MoneyResult } from "../lib/money";
 import type { DataInfo, MatterRow } from "../lib/protocol";
-import { fmtInt, fmtMonth, fmtNum, fmtPct, fmtR, fmtSignedPct, fmtSpan } from "../lib/format";
+import { fmtDate, fmtInt, fmtMonth, fmtNum, fmtPct, fmtR, fmtSpan } from "../lib/format";
+import { CONF_LABEL } from "../lib/confluences";
 import { verdict } from "../lib/verdict";
 
 const tone = (x: number, eps = 0.05) => (x > eps ? "pos" : x < -eps ? "neg" : "");
 
 // ---------- the verdict and equity curve ----------
-export function Verdict({ result, data, risk, market, failed }: { result: RunResult | null; data: DataInfo | null; risk: number; market: Market; failed: boolean }) {
+export function Verdict({ result, data, market, failed, money, moneyCfg }: {
+  result: RunResult | null; data: DataInfo | null; market: Market; failed: boolean; money: MoneyResult | null; moneyCfg: MoneyCfg;
+}) {
   const v = result ? verdict(result) : null;
-  const growth = useMemo(() => (result ? compound(result.trades, risk) : null), [result, risk]);
   return (
     <section className="sec-verdict" aria-labelledby="verdict-h" aria-live="polite">
       <h2 className="sr" id="verdict-h">Result</h2>
@@ -23,15 +26,30 @@ export function Verdict({ result, data, risk, market, failed }: { result: RunRes
           {v.notes.map((n) => <p key={n} className="verdict-sub">{n}</p>)}
           {v.cautions.map((n) => <p key={n} className="verdict-sub muted">{n}</p>)}
           {result && result.all.trades > 0 && <Equity result={result} />}
-          {result && growth && result.all.trades > 0 && (
-            <p className="riskline">
-              Risking {risk}% a trade, the account would have gone <b className={tone(growth.growthPct, 0.5)}>{fmtSignedPct(growth.growthPct)}</b> over {fmtSpan(result.from, result.to)}, with a worst drop of <b>{Math.round(growth.maxDrawdownPct)}%</b> along the way.
-            </p>
-          )}
+          {result && money && result.all.trades > 0 && <MoneyLine result={result} money={money} cfg={moneyCfg} />}
           <p className="r-explain">R is what a trade risked. A trade at +2R made twice what it risked; a full loss is −1R.</p>
         </>
       )}
     </section>
+  );
+}
+
+function MoneyLine({ result, money, cfg }: { result: RunResult; money: MoneyResult; cfg: MoneyCfg }) {
+  const how = cfg.mode === "lots" ? `At ${cfg.lots} lots` : `Risking ${cfg.riskPct}% of the balance each time`;
+  const tooBig = [...money.byId.values()].filter((x) => x.minLotTooBig && !x.skipped).length;
+  return (
+    <>
+      <p className="riskline">
+        {how}, a {fmtUsd(cfg.account)} account would have ended at <b className={tone(money.final - cfg.account, 0.005)}>{fmtUsd(money.final)}</b> over {fmtSpan(result.from, result.to)}, with a worst drop of <b>{Math.round(money.maxDrawdownPct)}%</b> along the way.
+      </p>
+      {money.blownAt !== null && <p className="riskline neg">The account would have been wiped out on {fmtDate(money.blownAt)}.</p>}
+      {money.riskiest > 0.1 && (
+        <p className="riskline">
+          The riskiest trade put <b>{Math.round(money.riskiest * 100)}%</b> of the balance on the line{money.overShare > 1 ? `, and ${money.overShare} trades risked more than 10%` : ""}. Many traders keep a single trade to 1 or 2% of the account.
+        </p>
+      )}
+      {cfg.mode === "risk" && tooBig > 0 && <p className="riskline">On {tooBig} trades even the smallest lot risked more than {cfg.riskPct}%.</p>}
+    </>
   );
 }
 
@@ -46,7 +64,7 @@ function Equity({ result }: { result: RunResult }) {
     let lo = 0, hi = 0;
     for (const [, y] of pts) { lo = Math.min(lo, y); hi = Math.max(hi, y); }
     const pad = Math.max((hi - lo) * 0.08, 0.5);
-    lo -= pad; hi += pad;
+    lo -= pad; hi += Math.max((hi - lo) * 0.22, 0.6); // headroom so the line stays clear of the labels
     const x = (t: number) => ((t - result.from) / Math.max(1, result.to - result.from)) * W;
     const y = (r: number) => H - ((r - lo) / (hi - lo)) * H;
     let path = "";
@@ -189,6 +207,7 @@ export function Funnel({ result, cfg }: { result: RunResult | null; cfg: Config 
       side: cfg.bias === "off" ? undefined : `${fmtInt(f.biasBlocked)} more went against the weekly bias or had no bias, so they were skipped.`
     }
   ];
+  if (cfg.requireKeyLevel) items.push({ label: "The sweep reached a higher-timeframe key level", n: f.keyLevels });
   if (cfg.zone !== "off") {
     items.push({ label: "A 1-hour zone formed after the sweep", n: f.zones });
     items.push({ label: "Price came back into the zone", n: f.touches });
@@ -196,7 +215,9 @@ export function Funnel({ result, cfg }: { result: RunResult | null; cfg: Config 
   const skipped = [
     f.skippedNews ? `${fmtInt(f.skippedNews)} on jobs report days` : "",
     f.skippedSession ? `${fmtInt(f.skippedSession)} outside your entry times` : "",
-    f.skippedPastMid ? `${fmtInt(f.skippedPastMid)} already at 50%` : ""
+    f.skippedPastMid ? `${fmtInt(f.skippedPastMid)} already at 50%` : "",
+    f.skippedLowR ? `${fmtInt(f.skippedLowR)} with the target too close in R` : "",
+    f.skippedDailyCap ? `${fmtInt(f.skippedDailyCap)} over the daily limit` : ""
   ].filter(Boolean);
   items.push({ label: "Structure shifted and a trade was taken", n: f.entries, side: skipped.length ? `Skipped after a shift: ${skipped.join(", ")}.` : undefined });
   return (
@@ -212,6 +233,70 @@ export function Funnel({ result, cfg }: { result: RunResult | null; cfg: Config 
           </li>
         ))}
       </ol>
+    </section>
+  );
+}
+
+// ---------- do more confluences help? ----------
+const GRADES: Grade[] = ["A+", "A", "B", "C"];
+const sum = (ts: Trade[]) => ts.reduce((a, t) => a + t.r, 0);
+
+export function Grades({ result }: { result: RunResult | null }) {
+  if (!result || !result.all.trades) return null;
+  const ts = result.trades;
+  const cell = (list: Trade[]) => (list.length ? <span className={tone(sum(list) / list.length, 0.005)}>{fmtR(sum(list) / list.length, 2)}</span> : "–");
+  return (
+    <section className="sec-grades" aria-labelledby="grades-h">
+      <h2 className="sec" id="grades-h">Do more confluences help?</h2>
+      <p className="sec-note">
+        Each trade is graded on {CONFLUENCES.length} confluences. A+ has all of them, A misses one or two, B three or four, C more. If better grades don&apos;t do better, the extra confluences aren&apos;t adding an edge here.
+      </p>
+      <div className="table-wrap">
+        <table className="grid">
+          <thead><tr><th scope="col">Grade</th><th scope="col">Trades</th><th scope="col">Won</th><th scope="col">Average</th><th scope="col">Total</th></tr></thead>
+          <tbody>
+            {GRADES.map((g) => {
+              const list = ts.filter((t) => t.grade === g);
+              return (
+                <tr key={g}>
+                  <th scope="row">{g}</th>
+                  <td>{fmtInt(list.length)}</td>
+                  <td>{list.length ? fmtPct(list.filter((t) => t.r > 0.005).length / list.length) : "–"}</td>
+                  <td>{cell(list)}</td>
+                  <td>{list.length ? <span className={tone(sum(list))}>{fmtR(sum(list))}</span> : "–"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-wrap" style={{ marginTop: 18 }}>
+        <table className="grid">
+          <thead>
+            <tr>
+              <th scope="col">Confluence</th>
+              <th scope="col">With it<small>trades</small></th>
+              <th scope="col"><span className="sr">With it, </span>average</th>
+              <th scope="col">Without<small>trades</small></th>
+              <th scope="col"><span className="sr">Without, </span>average</th>
+            </tr>
+          </thead>
+          <tbody>
+            {CONFLUENCES.map((c) => {
+              const yes = ts.filter((t) => t.conf[c]), no = ts.filter((t) => !t.conf[c]);
+              return (
+                <tr key={c}>
+                  <th scope="row">{CONF_LABEL[c]}</th>
+                  <td>{fmtInt(yes.length)}</td>
+                  <td>{cell(yes)}</td>
+                  <td>{fmtInt(no.length)}</td>
+                  <td>{cell(no)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

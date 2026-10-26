@@ -1,53 +1,67 @@
 // Keeps the chosen market and rules in the address, so a setup can be shared.
-import { DEFAULT_CONFIG, type Config, type Session } from "../engine";
+import { DEFAULT_CONFIG, type Config, type Grade, type LevelKind, type Session, type Tf } from "../engine";
 
-export interface Saved { marketId?: string; months?: number; cfg: Partial<Config>; risk?: number }
+export interface Saved { marketId?: string; months?: number; cfg: Partial<Config> }
 
 const ONE_OF = {
   bias: ["off", "weeklyCrt", "structure", "premiumDiscount", "majority", "allAgree"],
   zone: ["obFvg", "fvg", "ob", "off"],
   timing: ["sameDay", "nextDay", "either"],
-  stop: ["sweep", "pullback"],
-  dayStart: ["utc", "nyClose"]
+  stop: ["sweep", "pullback", "ob"],
+  dayStart: ["utc", "nyClose"],
+  lowRGrade: ["A+", "A", "B", "C", "any"]
 } as const;
-const FLAGS = { half: "partialAtTp1", day3: "timeStop", news: "newsGuard" } as const;
-const SESSIONS: Session[] = ["asian", "london", "newyork"];
+const FLAGS = { half: "partialAtTp1", day3: "timeStop", news: "newsGuard", key: "requireKeyLevel" } as const;
+const NUMBERS = { swing: "swing15", minr: "minR", fullr: "fullR", maxr: "maxR", perday: "maxPerDay" } as const;
+const LISTS = {
+  sess: { key: "sessions", allowed: ["asian", "london", "newyork"] as Session[] },
+  ktf: { key: "keyLevelTfs", allowed: ["h4", "d1", "w1"] as Tf[] },
+  kind: { key: "keyLevelKinds", allowed: ["ob", "breaker", "fvg"] as LevelKind[] }
+} as const;
 
 export function readHash(hash: string): Saved {
   const q = new URLSearchParams(hash.replace(/^#/, ""));
   const cfg: Record<string, unknown> = {};
   for (const [key, allowed] of Object.entries(ONE_OF)) {
     const v = q.get(key);
-    if (v && (allowed as readonly string[]).includes(v)) cfg[key] = v;
+    if (v && (allowed as readonly string[]).includes(v)) cfg[key] = v as Grade;
   }
   for (const [short, key] of Object.entries(FLAGS)) {
     const v = q.get(short);
     if (v === "1" || v === "0") cfg[key] = v === "1";
   }
-  const sess = q.get("sess");
-  if (sess !== null) cfg.sessions = sess.split(",").filter((s): s is Session => (SESSIONS as string[]).includes(s));
-  const swing = Number(q.get("swing"));
-  if ([1, 2, 3].includes(swing)) cfg.swing15 = swing;
-  const spread = Number(q.get("spread"));
-  if (q.has("spread") && Number.isFinite(spread) && spread >= 0) cfg.spread = spread;
+  for (const [short, key] of Object.entries(NUMBERS)) {
+    const v = Number(q.get(short));
+    if (q.has(short) && Number.isFinite(v) && v >= 0 && v <= 1000) cfg[key] = v;
+  }
+  for (const [short, { key, allowed }] of Object.entries(LISTS)) {
+    const v = q.get(short);
+    if (v !== null) cfg[key] = v.split(",").filter((x) => (allowed as readonly string[]).includes(x));
+  }
+  for (const [short, key] of [["spread", "spread"], ["buf", "stopBuffer"]] as const) {
+    const v = Number(q.get(short));
+    if (q.has(short) && Number.isFinite(v) && v >= 0) cfg[key] = v;
+  }
   const months = Number(q.get("h"));
-  const risk = Number(q.get("risk"));
   return {
     marketId: q.get("m") ?? undefined,
     months: [3, 12, 24, 60].includes(months) ? months : undefined,
-    cfg: cfg as Partial<Config>,
-    risk: Number.isFinite(risk) && risk > 0 && risk <= 10 ? risk : undefined
+    cfg: cfg as Partial<Config>
   };
 }
 
-export function writeHash(s: { marketId: string; months: number; cfg: Config; risk: number; spreadDefault: number }) {
+export function writeHash(s: { marketId: string; months: number; cfg: Config; spreadDefault: number; bufferDefault: number }) {
   const q = new URLSearchParams();
+  const c = s.cfg as unknown as Record<string, unknown>, d = DEFAULT_CONFIG as unknown as Record<string, unknown>;
   if (s.marketId !== "eurusd-2014") { q.set("m", s.marketId); q.set("h", String(s.months)); }
-  for (const key of Object.keys(ONE_OF) as (keyof typeof ONE_OF)[]) if (s.cfg[key] !== DEFAULT_CONFIG[key]) q.set(key, String(s.cfg[key]));
-  for (const [short, key] of Object.entries(FLAGS) as [string, keyof typeof DEFAULT_CONFIG][]) if (s.cfg[key] !== DEFAULT_CONFIG[key]) q.set(short, s.cfg[key] ? "1" : "0");
-  if (s.cfg.sessions.length) q.set("sess", s.cfg.sessions.join(","));
-  if (s.cfg.swing15 !== DEFAULT_CONFIG.swing15) q.set("swing", String(s.cfg.swing15));
+  for (const key of Object.keys(ONE_OF)) if (c[key] !== d[key]) q.set(key, String(c[key]));
+  for (const [short, key] of Object.entries(FLAGS)) if (c[key] !== d[key]) q.set(short, c[key] ? "1" : "0");
+  for (const [short, key] of Object.entries(NUMBERS)) if (c[key] !== d[key]) q.set(short, String(c[key]));
+  for (const [short, { key }] of Object.entries(LISTS)) {
+    const a = c[key] as string[], b = d[key] as string[];
+    if (a.length !== b.length || a.some((x) => !b.includes(x))) q.set(short, a.join(","));
+  }
   if (Math.abs(s.cfg.spread - s.spreadDefault) > 1e-12) q.set("spread", String(+s.cfg.spread.toPrecision(6)));
-  if (s.risk !== 1) q.set("risk", String(s.risk));
+  if (Math.abs(s.cfg.stopBuffer - s.bufferDefault) > 1e-12) q.set("buf", String(+s.cfg.stopBuffer.toPrecision(6)));
   return q.toString();
 }

@@ -31,7 +31,15 @@ export type ZoneMode = "obFvg" | "fvg" | "ob" | "off";
 export type Timing = "sameDay" | "nextDay" | "either";
 export type Session = "asian" | "london" | "newyork";
 export type DayStart = "utc" | "nyClose";
-export type StopMode = "sweep" | "pullback";
+export type StopMode = "sweep" | "pullback" | "ob";
+/** Higher timeframes for key levels: 4-hour, daily, weekly. */
+export type Tf = "h4" | "d1" | "w1";
+export type LevelKind = "ob" | "breaker" | "fvg";
+export type Grade = "A+" | "A" | "B" | "C";
+
+/** The confluences a trade is graded on, in display order. */
+export const CONFLUENCES = ["keyLevel", "weeklyBias", "mtf", "discount", "obFvg", "fib", "gann", "killzone", "ifvg", "displacement"] as const;
+export type ConfKey = (typeof CONFLUENCES)[number];
 
 export interface Config {
   bias: BiasMode;
@@ -47,10 +55,26 @@ export interface Config {
   timeStop: boolean;
   /** Spread in price units (EURUSD 1 pip = 0.0001). */
   spread: number;
-  /** "sweep": stop beyond the sweep's wick. "pullback": beyond the low (high for sells) of the pullback into the zone, just before the shift. */
+  /**
+   * "ob": beyond the 1-hour order block in the entry zone (the zone's edge if it has no order block, the sweep if there's no zone).
+   * "sweep": beyond the sweep's wick. "pullback": beyond the dip into the zone just before the shift.
+   */
   stop: StopMode;
-  /** Extra room beyond the stop level, in price units. */
+  /** Extra room beyond the stop level, in price units (about a pip). */
   stopBuffer: number;
+  /** Candle 2's sweep must reach a higher-timeframe key level for the CRT to count. */
+  requireKeyLevel: boolean;
+  keyLevelTfs: Tf[];
+  keyLevelKinds: LevelKind[];
+  /** Skip trades whose target is less than this many R away. */
+  minR: number;
+  /** Trades between minR and this need at least `lowRGrade`. */
+  fullR: number;
+  lowRGrade: Grade | "any";
+  /** The target never sits more than this many R away. */
+  maxR: number;
+  /** Most new trades in one day (0 = no limit). */
+  maxPerDay: number;
   dayStart: DayStart;
   /** Markets that close at weekends: fold the short Sunday session into Monday. */
   weekendClosed: boolean;
@@ -68,11 +92,19 @@ export const DEFAULT_CONFIG: Config = {
   timing: "either",
   newsGuard: true,
   sessions: [],
-  partialAtTp1: true,
+  partialAtTp1: false,
   timeStop: true,
   spread: 0.0001,
-  stop: "sweep",
-  stopBuffer: 0,
+  stop: "ob",
+  stopBuffer: 0.0001,
+  requireKeyLevel: true,
+  keyLevelTfs: ["h4", "d1", "w1"],
+  keyLevelKinds: ["ob", "breaker", "fvg"],
+  minR: 2,
+  fullR: 3,
+  lowRGrade: "A+",
+  maxR: 6,
+  maxPerDay: 3,
   dayStart: "utc",
   weekendClosed: true,
   swing15: 2,
@@ -110,10 +142,16 @@ export interface Trade {
   entryT: number; // close time of the 15-minute candle that broke structure
   entry: number; // fill price (ask for buys, bid for sells)
   stop: number;
-  tp1: number;
-  tp2: number;
+  tp1: number; // the range's 50% level
+  tp2: number; // the final target
+  partial: boolean; // half comes off at tp1
   risk: number; // entry to stop, in price
+  plannedR: number; // how many R the final target was away at entry
   sameDay: boolean; // entered on the sweep day (true) or the day after (false)
+  keyLevel: { tf: Tf; kind: LevelKind; top: number; bottom: number; t: number } | null;
+  conf: Record<ConfKey, boolean>;
+  score: number; // how many confluences were met
+  grade: Grade;
   // the result
   partialT: number | null;
   exitT: number;
@@ -141,12 +179,15 @@ export interface Funnel {
   days: number; // trading days looked at
   sweeps: number; // days where the range was swept in an allowed direction
   biasBlocked: number; // sweeps skipped because they went against the weekly bias
+  keyLevels: number; // sweeps that reached a higher-timeframe key level
   zones: number; // sweeps that formed a 1-hour zone
   touches: number; // zones that price came back into
   entries: number; // trades taken
   skippedNews: number;
   skippedSession: number;
   skippedPastMid: number; // structure broke after price was already at the 50% level
+  skippedLowR: number; // the target was too close for the rules
+  skippedDailyCap: number; // already at the most trades for the day
 }
 
 export interface RunResult {

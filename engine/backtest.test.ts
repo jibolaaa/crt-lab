@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { prepare, runBacktest } from "./backtest";
+import { gradeAtLeast, gradeOf, inKillzone, prepare, runBacktest } from "./backtest";
 import { DEFAULT_CONFIG, type Config, type Series } from "./types";
 
 // Build days of 15-minute candles from Mon 8 Jan 2024 (UTC).
@@ -23,7 +23,12 @@ function make(at: Record<string, OHLC>, days = 3): Series {
   return { n: s.t.length, ...s };
 }
 
-const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, bias: "off", newsGuard: false, ...over });
+// The first version's rules: stop at the sweep, half at 50%, no key level or R limits.
+const CLASSIC: Partial<Config> = {
+  bias: "off", newsGuard: false, requireKeyLevel: false, stop: "sweep", stopBuffer: 0,
+  partialAtTp1: true, minR: 0, fullR: 0, maxR: 1000, maxPerDay: 0
+};
+const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, ...CLASSIC, ...over });
 const run = (s: Series, c: Config) => runBacktest(prepare(s, c), c);
 const iso = (t: number) => new Date(t * 1000).toISOString();
 
@@ -271,5 +276,120 @@ describe("weekly bias and news", () => {
     const res = run(make(simpleBuy), cfg({ zone: "off", sessions: ["asian", "newyork"] }));
     expect(res.trades.length).toBe(0);
     expect(res.funnel.skippedSession).toBe(1);
+  });
+});
+
+// ---------------- the second version's rules ----------------
+
+// Day 0 leaves a 4-hour gap at 1.0980 to 1.0990 on the way up. Day 1 (the
+// range, 1.1000 to 1.1100) stays above it. Day 2 sweeps into it, then shifts.
+const keyBuy: Record<string, OHLC> = {
+  "0:00:00": [1.097, 1.098, 1.096, 1.097],
+  "0:04:00": [1.097, 1.1, 1.097, 1.0995],
+  "0:08:00": [1.0995, 1.105, 1.099, 1.1045],
+  "1:03:00": [1.1045, 1.11, 1.1045, 1.105],
+  "1:15:00": [1.105, 1.105, 1.1, 1.104],
+  "2:06:00": [1.104, 1.1045, 1.104, 1.104],
+  "2:06:15": [1.104, 1.104, 1.103, 1.103],
+  "2:08:00": [1.103, 1.103, 1.0985, 1.099],
+  "2:08:15": [1.099, 1.1, 1.0986, 1.0998],
+  "2:08:30": [1.0998, 1.102, 1.0995, 1.1018],
+  "2:08:45": [1.1018, 1.1048, 1.1015, 1.1046],
+  "2:09:00": [1.1048, 1.1055, 1.1048, 1.1052],
+  "2:12:00": [1.1052, 1.1105, 1.105, 1.11]
+};
+const WED = MON + 2 * 86400;
+
+describe("the sweep has to reach a higher-timeframe key level", () => {
+  const keyCfg = (over: Partial<Config> = {}) => cfg({ zone: "off", requireKeyLevel: true, ...over });
+  it("trades when candle 2 sweeps into a fresh 4-hour gap", () => {
+    const res = run(make(keyBuy, 4), keyCfg());
+    const tr = res.trades.find((x) => x.sweepDayT === WED);
+    expect(tr?.keyLevel).toMatchObject({ tf: "h4", kind: "fvg", top: 1.099, bottom: 1.098 });
+    expect(tr?.conf.keyLevel).toBe(true);
+    expect(res.funnel.keyLevels).toBeGreaterThanOrEqual(1);
+  });
+  it("does nothing when the sweep stops short of it", () => {
+    const s = make({ ...keyBuy, "2:08:00": [1.103, 1.103, 1.0995, 1.0997], "2:08:15": [1.0997, 1.1, 1.0996, 1.0998], "2:08:30": [1.0998, 1.102, 1.0996, 1.1018] }, 4);
+    expect(run(s, keyCfg()).trades.filter((x) => x.sweepDayT === WED).length).toBe(0);
+    expect(run(s, keyCfg({ requireKeyLevel: false })).trades.filter((x) => x.sweepDayT === WED).length).toBe(1);
+  });
+  it("does nothing when the gap was already touched on an earlier day", () => {
+    // day 1 dips to 1.0989 first, so day 2's sweep is not the first visit
+    // (its high moves to 1.1120 to keep the 50% level above the entry)
+    const s = make({ ...keyBuy, "1:03:00": [1.1045, 1.112, 1.1045, 1.105], "1:15:00": [1.105, 1.105, 1.0989, 1.104] }, 4);
+    expect(run(s, keyCfg()).trades.filter((x) => x.sweepDayT === WED).length).toBe(0);
+    expect(run(s, keyCfg({ requireKeyLevel: false })).trades.filter((x) => x.sweepDayT === WED).length).toBe(1);
+  });
+  it("can be limited to the daily and weekly charts", () => {
+    expect(run(make(keyBuy, 4), keyCfg({ keyLevelTfs: ["d1", "w1"] })).trades.filter((x) => x.sweepDayT === WED).length).toBe(0);
+  });
+});
+
+describe("stops beyond the 1-hour order block, and the R limits", () => {
+  const rCfg = (over: Partial<Config> = {}) => cfg({ zone: "obFvg", partialAtTp1: false, ...over });
+  it("puts the stop a pip under the order block", () => {
+    const tr = run(make(zoneBuy), rCfg({ stop: "ob", stopBuffer: 0.0001 })).trades[0];
+    expect(tr.stop).toBeCloseTo(1.0979, 6); // hour 08's low 1.0980, less a pip
+  });
+  it("skips trades whose target is under 2R", () => {
+    // stop 1.0979, entry 1.1046, target 1.1100: about 0.8R
+    const res = run(make(zoneBuy), rCfg({ stop: "ob", stopBuffer: 0.0001, minR: 2 }));
+    expect(res.trades.length).toBe(0);
+    expect(res.funnel.skippedLowR).toBe(1);
+  });
+  it("takes a 3.9R target as it is", () => {
+    // stop at the pullback 1.1032: risk 0.0014, target 1.1100 is 3.86R away
+    const tr = run(make(zoneBuy), rCfg({ stop: "pullback", minR: 2, fullR: 3, maxR: 6 })).trades[0];
+    expect(tr.plannedR).toBeCloseTo((1.11 - 1.1046) / 0.0014, 6);
+    expect(tr.tp2).toBeCloseTo(1.11, 6);
+    expect(tr.reason).toBe("tp2");
+  });
+  it("caps the target at the most R allowed", () => {
+    const tr = run(make(zoneBuy), rCfg({ stop: "pullback", minR: 2, maxR: 3 })).trades[0];
+    expect(tr.plannedR).toBeCloseTo(3, 6);
+    expect(tr.tp2).toBeCloseTo(1.1046 + 3 * 0.0014, 6);
+    expect(tr.r).toBeCloseTo(3, 6);
+  });
+  it("needs the top grade between 2R and the full R", () => {
+    expect(run(make(zoneBuy), rCfg({ stop: "pullback", minR: 2, fullR: 4, lowRGrade: "A+" })).trades.length).toBe(0);
+    expect(run(make(zoneBuy), rCfg({ stop: "pullback", minR: 2, fullR: 4, lowRGrade: "any" })).trades.length).toBe(1);
+  });
+});
+
+describe("grading", () => {
+  it("scores confluences into grades", () => {
+    expect([10, 9, 8, 7, 6, 5, 0].map((n) => gradeOf(n))).toEqual(["A+", "A", "A", "B", "B", "C", "C"]);
+    expect(gradeAtLeast("A", "A+")).toBe(false);
+    expect(gradeAtLeast("A+", "A")).toBe(true);
+    expect(gradeAtLeast("C", "any")).toBe(true);
+  });
+  it("knows the London and New York killzones in New York time", () => {
+    const at = (m: number, d: number, h: number, min = 0) => Date.UTC(2024, m, d, h, min) / 1000;
+    expect(inKillzone(at(0, 9, 7, 30))).toBe(true); // 2:30am New York in winter
+    expect(inKillzone(at(0, 9, 12, 15))).toBe(true); // 7:15am New York
+    expect(inKillzone(at(0, 9, 11, 0))).toBe(false); // 6am New York
+    expect(inKillzone(at(6, 9, 11, 15))).toBe(true); // 7:15am New York in summer
+  });
+  it("marks what the zone trade had going for it", () => {
+    const tr = run(make(zoneBuy), cfg({ zone: "obFvg" })).trades[0];
+    expect(tr.conf).toMatchObject({ displacement: true, obFvg: false, gann: false, fib: false, killzone: false, keyLevel: false });
+    expect(tr.grade).toBe("C");
+  });
+  it("sees a pullback into the 50 to 78.6% zone of the leg", () => {
+    // leg 1.0980 to 1.1042; a dip to 1.1010 is 52% back
+    const s = make({ ...zoneBuy, "1:11:00": [1.104, 1.104, 1.101, 1.1012], "1:11:15": [1.1012, 1.1046, 1.1012, 1.1045] });
+    expect(run(s, cfg({ zone: "obFvg" })).trades[0]?.conf.fib).toBe(true);
+  });
+  it("sees an inverted 15-minute gap on the way into the entry", () => {
+    // 10:30 to 11:00 leave a gap down at 1.1034 to 1.1036; 11:15 closes above it
+    const s = make({
+      ...zoneBuy,
+      "1:10:30": [1.104, 1.104, 1.1036, 1.1037],
+      "1:10:45": [1.1037, 1.1037, 1.1035, 1.1035],
+      "1:11:00": [1.1033, 1.1034, 1.1032, 1.1033]
+    });
+    const tr = run(s, cfg({ zone: "obFvg" })).trades[0];
+    expect(tr?.conf.ifvg).toBe(true);
   });
 });
