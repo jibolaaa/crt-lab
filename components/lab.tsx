@@ -1,12 +1,14 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_CONFIG, type Config, type RunResult } from "../engine";
-import { defaultSpread, defaultStopBuffer, marketById, type Spec } from "../lib/markets";
+import { DEFAULT_MARKET, defaultSpread, defaultStopBuffer, marketById, type Spec } from "../lib/markets";
+import { loadDerivCandles } from "../lib/deriv";
 import { simulate, type MoneyCfg } from "../lib/money";
 import type { DataInfo, FromWorker, MatterRow, Request, ToWorker } from "../lib/protocol";
 import { readHash, writeHash } from "../lib/urlstate";
 import { fmtR } from "../lib/format";
-import { Controls } from "./controls";
+import { MarketBar, Settings } from "./controls";
+import { Now } from "./now";
 import { Funnel, Grades, Matters, StatsTable, Verdict } from "./results";
 import { Trades, type Candles } from "./trades";
 import { Method } from "./method";
@@ -26,11 +28,13 @@ function save(key: string, value: unknown) {
 
 export default function Lab() {
   // ---- what the person chose ----
-  const [marketId, setMarketId] = useState("eurusd-2014");
+  const [marketId, setMarketId] = useState(DEFAULT_MARKET);
   const [months, setMonths] = useState(12);
   const [cfg, setCfg] = useState<Config>(DEFAULT_CONFIG);
   const [money, setMoneyState] = useState<MoneyCfg>(DEFAULT_MONEY);
-  const [spec, setSpecState] = useState<Spec>(marketById("eurusd-2014").spec);
+  const [spec, setSpecState] = useState<Spec>(marketById(DEFAULT_MARKET).spec);
+  const [showRules, setShowRules] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const [ready, setReady] = useState(false); // address read
   const market = marketById(marketId);
 
@@ -113,10 +117,33 @@ export default function Lab() {
     setMatters(null);
     setLoadError(null);
     setLoading({ text: mk.source === "builtin" ? "Loading 8 years of prices" : "Connecting to Deriv" });
-    const from = Math.floor(Date.now() / 1000 - history * 30.44 * 86400);
-    loadJob.current = send(mk.source === "builtin"
-      ? { type: "load", marketId: mk.id, url: new URL(DATA_URL, window.location.href).href }
-      : { type: "load", marketId: mk.id, symbol: mk.symbol, from });
+    if (mk.source === "builtin") {
+      loadJob.current = send({ type: "load", marketId: mk.id, url: new URL(DATA_URL, window.location.href).href });
+      return;
+    }
+    // live prices: the page talks to Deriv, then hands the candles to the worker
+    const id = ++job.current;
+    loadJob.current = id;
+    const start = Date.now() / 1000;
+    const from = Math.floor(start - history * 30.44 * 86400);
+    loadDerivCandles(mk.symbol!, {
+      from,
+      onProgress: (count, oldest) => {
+        if (loadJob.current !== id) return;
+        setLoading({ text: `Loading from Deriv: ${count.toLocaleString("en-GB")} candles so far`, fraction: Math.min(1, Math.max(0, (start - oldest) / (start - from))) });
+      }
+    }).then((res) => {
+      if (loadJob.current !== id) return; // a newer load started
+      const now = Date.now() / 1000;
+      const rows = res.candles.filter((c) => c.epoch + 900 <= now); // the newest candle is usually still forming
+      const col = (k: "epoch" | "open" | "high" | "low" | "close") => Float64Array.from(rows, (r) => r[k]);
+      const msg = { type: "series" as const, job: id, marketId: mk.id, t: col("epoch"), o: col("open"), h: col("high"), l: col("low"), c: col("close"), pipSize: res.pipSize, shortBy: res.shortBy };
+      worker.current?.postMessage(msg, [msg.t.buffer, msg.o.buffer, msg.h.buffer, msg.l.buffer, msg.c.buffer]);
+    }, (e: Error) => {
+      if (loadJob.current !== id) return;
+      setLoadError(e.message);
+      setLoading(null);
+    });
   }, [marketId, history, send]);
 
   useEffect(() => {
@@ -164,36 +191,48 @@ export default function Lab() {
         <div className="ticker" aria-live="polite">
           {(busy || loading) && <span className="busy" aria-hidden />}
           <span className="tk-market">{market.name}</span>
-          {ticker && <span><b>{ticker.trades}</b> trades</span>}
+          {ticker && <span><b>{ticker.trades}</b> trade{ticker.trades === 1 ? "" : "s"}</span>}
           {ticker && ticker.trades > 0 && <b className={ticker.total > 0.05 ? "pos" : ticker.total < -0.05 ? "neg" : ""}>{fmtR(ticker.total)}</b>}
         </div>
       </header>
 
-      <main className="page">
-        <section className="intro">
-          <h1>Test Candle Range Theory on years of real prices</h1>
-          <p>Set the rules the way you trade them: weekly bias, a daily range swept into a higher-timeframe key level, a 1-hour zone, a 15-minute shift. See every trade they would have taken, graded on its confluences, and whether it held up on years it never saw.</p>
-        </section>
+      <main className="page simple">
+        <p className="tagline">Your CRT rules on real prices: where today&apos;s setup stands, and how the rules have done.</p>
 
-        <div className="lab">
-          <div className="col-controls">
-            <Controls
-              market={market} months={months} onMarket={setMarketId} onMonths={setMonths}
-              data={data} loading={loading} loadError={loadError} onRetry={loadPrices}
-              cfg={cfg} update={update} reset={reset}
-              money={money} setMoney={setMoney} spec={spec} setSpec={setSpec}
-            />
+        <MarketBar
+          market={market} months={months} onMarket={setMarketId} onMonths={setMonths}
+          data={data} loading={loading} loadError={loadError} onRetry={loadPrices}
+        />
+
+        <Now result={result} market={market} cfg={cfg} loading={!!loading} />
+
+        <Verdict result={result} data={data} market={market} failed={!!loadError} money={dollars} moneyCfg={money} />
+
+        <div className="more-row">
+          <button className={`btn quiet${showRules ? " on" : ""}`} aria-expanded={showRules} onClick={() => setShowRules((x) => !x)}>
+            {showRules ? "Hide rules" : "Change rules"}
+          </button>
+          <button className={`btn quiet${showMore ? " on" : ""}`} aria-expanded={showMore} onClick={() => setShowMore((x) => !x)}>
+            {showMore ? "Less detail" : "More detail"}
+          </button>
+        </div>
+
+        {showRules && (
+          <div className="drawer">
+            <Settings market={market} cfg={cfg} update={update} reset={reset} money={money} setMoney={setMoney} spec={spec} setSpec={setSpec} />
           </div>
-          <div className="col-results">
-            <Verdict result={result} data={data} market={market} failed={!!loadError} money={dollars} moneyCfg={money} />
+        )}
+        {showMore && (
+          <div className="drawer">
             <StatsTable result={result} />
             <Grades result={result} />
             <Matters result={result} rows={matters} />
             <Funnel result={result} cfg={cfg} />
-            <Trades result={result} market={market} getCandles={getCandles} money={dollars} moneyCfg={money} />
             <Method />
           </div>
-        </div>
+        )}
+
+        <Trades result={result} market={market} getCandles={getCandles} money={dollars} moneyCfg={money} />
 
         <footer className="foot">
           <p>A testing tool, not financial advice. A rule set that made money in the past can still lose from here.</p>

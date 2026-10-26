@@ -190,9 +190,47 @@ export interface Funnel {
   skippedDailyCap: number; // already at the most trades for the day
 }
 
+/** Where a setup stands at the last closed candle. */
+export type LiveStage =
+  | "blocked" // the weekly bias rules this direction out this week
+  | "waiting" // candle 2 hasn't taken candle 1's high or low yet
+  | "noKey" // it took it, but not into a fresh key level
+  | "key" // swept into a key level; waiting for a 1-hour zone
+  | "zone" // zone ready; waiting for price to come back into it
+  | "touched" // in the zone; waiting for a 15-minute close beyond `level`
+  | "entered"
+  | "ended"; // cancelled or skipped: see `why`
+
+export interface LiveSetup {
+  dir: Dir;
+  fromYesterday: boolean; // swept yesterday, can still enter today (or its trade is still running)
+  stage: LiveStage;
+  rangeDate: number; // candle 1's trading date, as midnight UTC
+  sweepDate: number; // candle 2's trading date, as midnight UTC
+  why: string | null;
+  rangeHigh: number;
+  rangeLow: number;
+  mid: number;
+  sweepPrice: number | null;
+  keyLevel: Trade["keyLevel"];
+  zone: Zone | null;
+  level: number | null;
+  skipR: number | null;
+  trade: Trade | null;
+}
+
+export interface Live {
+  asOf: number; // close time of the last candle
+  dayStart: number; // time of today's first candle
+  date: number; // today's trading date, as midnight UTC
+  bias: number | null; // this week's bias, or null when the bias rule is off
+  setups: LiveSetup[];
+}
+
 export interface RunResult {
   trades: Trade[];
   funnel: Funnel;
+  live: Live | null;
   splitT: number; // first 70% of the period is "seen", the rest "unseen"
   seen: Stats;
   unseen: Stats;

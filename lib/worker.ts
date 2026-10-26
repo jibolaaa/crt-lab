@@ -1,7 +1,6 @@
 /// <reference lib="webworker" />
 // Runs the engine off the main thread so the page stays smooth on a phone.
-import { prepare, runBacktest, seriesFromBuffer, seriesFromCandles, type Config, type Prepared, type Series } from "../engine";
-import { loadDerivCandles } from "./deriv";
+import { prepare, runBacktest, seriesFromBuffer, type Config, type Prepared, type Series } from "../engine";
 import { variantsFor } from "./matters";
 import type { FromWorker, MatterRow, ToWorker } from "./protocol";
 
@@ -43,27 +42,18 @@ async function fetchWithProgress(url: string, job: number) {
 ctx.onmessage = async (e: MessageEvent<ToWorker>) => {
   const msg = e.data;
   try {
-    if (msg.type === "load") {
+    if (msg.type === "load" || msg.type === "series") {
       series = null;
       prepared = null;
       let pipSize: number | null = null, shortBy: string | null = null;
-      if (msg.url) {
+      if (msg.type === "load") {
         post({ type: "progress", job: msg.job, text: "Loading 8 years of prices", fraction: 0 });
         series = seriesFromBuffer(await fetchWithProgress(msg.url, msg.job));
       } else {
-        const from = msg.from ?? 0;
-        post({ type: "progress", job: msg.job, text: "Connecting to Deriv" });
-        const res = await loadDerivCandles(msg.symbol!, {
-          from,
-          onProgress: (count, oldest) => post({
-            type: "progress", job: msg.job,
-            text: `Loading from Deriv: ${count.toLocaleString("en-GB")} candles so far`,
-            fraction: Math.min(1, Math.max(0, (Date.now() / 1000 - oldest) / (Date.now() / 1000 - from)))
-          })
-        });
-        series = seriesFromCandles(res.candles);
-        pipSize = res.pipSize;
-        shortBy = res.shortBy;
+        // live candles, loaded by the page from Deriv
+        series = { n: msg.t.length, t: msg.t, o: msg.o, h: msg.h, l: msg.l, c: msg.c };
+        pipSize = msg.pipSize;
+        shortBy = msg.shortBy;
       }
       if (!series.n) throw new Error("No prices came back for this market.");
       post({

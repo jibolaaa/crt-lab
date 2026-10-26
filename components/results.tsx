@@ -17,7 +17,7 @@ export function Verdict({ result, data, market, failed, money, moneyCfg }: {
   const v = result ? verdict(result) : null;
   return (
     <section className="sec-verdict" aria-labelledby="verdict-h" aria-live="polite">
-      <h2 className="sr" id="verdict-h">Result</h2>
+      <h2 className="sec" id="verdict-h">How your rules did{result ? ` on ${fmtSpan(result.from, result.to)} of ${market.name}` : ""}</h2>
       {!v ? (
         <p className="verdict-line verdict-empty">{failed ? "No prices to test yet." : data ? "Running your rules" : `Getting ${market.name} ready`}</p>
       ) : (

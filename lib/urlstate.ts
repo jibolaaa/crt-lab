@@ -1,5 +1,6 @@
 // Keeps the chosen market and rules in the address, so a setup can be shared.
 import { DEFAULT_CONFIG, type Config, type Grade, type LevelKind, type Session, type Tf } from "../engine";
+import { DEFAULT_MARKET } from "./markets";
 
 export interface Saved { marketId?: string; months?: number; cfg: Partial<Config> }
 
@@ -53,7 +54,8 @@ export function readHash(hash: string): Saved {
 export function writeHash(s: { marketId: string; months: number; cfg: Config; spreadDefault: number; bufferDefault: number }) {
   const q = new URLSearchParams();
   const c = s.cfg as unknown as Record<string, unknown>, d = DEFAULT_CONFIG as unknown as Record<string, unknown>;
-  if (s.marketId !== "eurusd-2014") { q.set("m", s.marketId); q.set("h", String(s.months)); }
+  if (s.marketId !== DEFAULT_MARKET) q.set("m", s.marketId);
+  if (s.months !== 12) q.set("h", String(s.months));
   for (const key of Object.keys(ONE_OF)) if (c[key] !== d[key]) q.set(key, String(c[key]));
   for (const [short, key] of Object.entries(FLAGS)) if (c[key] !== d[key]) q.set(short, c[key] ? "1" : "0");
   for (const [short, key] of Object.entries(NUMBERS)) if (c[key] !== d[key]) q.set(short, String(c[key]));

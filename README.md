@@ -1,6 +1,6 @@
 # CRT Lab
 
-Test Candle Range Theory (CRT) and SMC entry rules on years of real prices, and see every trade they would have taken.
+See where today's Candle Range Theory (CRT) setup stands, and test the rules on years of real prices, with every trade they would have taken.
 
 ## What it tests
 
@@ -16,6 +16,10 @@ Each trade is graded on 10 confluences (key level, weekly bias, 4-hour and daily
 
 Every rule can be switched off or changed on the page. A dollar view turns the results into money for a chosen account size, lot size or risk per trade, and leverage.
 
+## Right now
+
+On a live Deriv market (it opens on Volatility 75), the page reads today's setup at the last closed 15-minute candle: candle 1's range, whether candle 2 has swept it, whether the sweep reached a key level, the 1-hour zone, and the price a 15-minute candle has to close beyond for the entry. A sweep from the day before stays on the list while it can still enter, or while its trade is running.
+
 ## What it found on EUR/USD, 2014 to 2021
 
 With the default rules: 8 trades in 8 years and +3.0R, with +1.3R from 2 trades in the last 30% of the data, kept aside for checking. That is far too few trades to tell an edge from luck. Loosening the rules gives more trades but loses: without the key level, 20 trades and −0.9R; without the weekly bias, 41 trades and −7.1R. The first version of the rules (stop beyond the sweep, half off at 50%, no key level) lost 8.1R over 71 trades. On those 71 trades, better grades didn't mean better results: the 27 B-grade trades lost 10.1R, while the 40 C-grade trades made 1.6R.
@@ -26,7 +30,7 @@ With the default rules: 8 trades in 8 years and +3.0R, with +1.3R from 2 trades 
 - When one candle could have hit both the stop and a target, the stop is assumed to come first.
 - Every trade pays the spread: buys open at the ask and close at the bid.
 - Higher-timeframe levels only count after the candle that completed them has closed, and stop counting once a candle of their own timeframe closes through them.
-- 132 automated tests: hand-built candle scenarios with exact expected results, key level detection, the dollar maths, a fake Deriv server for the price loader, and real-data checks that cut the prices off at each entry and confirm the same trade, key level and grade still come out.
+- 145 automated tests: hand-built candle scenarios with exact expected results, key level detection, the dollar maths, a fake Deriv server for the price loader, real-data checks that cut the prices off at each entry and confirm the same trade, key level and grade still come out, and checks of the "right now" view at each stage.
 
 ## Data
 

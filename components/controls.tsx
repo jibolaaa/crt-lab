@@ -4,17 +4,10 @@ import type { Config, Grade, LevelKind, Session, Tf } from "../engine";
 import { HISTORY, MARKETS, type Market, type Spec } from "../lib/markets";
 import type { MoneyCfg } from "../lib/money";
 import type { DataInfo } from "../lib/protocol";
-import { fmtDate, fmtInt, fmtSpan } from "../lib/format";
+import { fmtDate, fmtInt } from "../lib/format";
 
 interface Props {
   market: Market;
-  months: number;
-  onMarket: (id: string) => void;
-  onMonths: (m: number) => void;
-  data: DataInfo | null;
-  loading: { text: string; fraction?: number } | null;
-  loadError: string | null;
-  onRetry: () => void;
   cfg: Config;
   update: (c: Partial<Config>) => void;
   reset: () => void;
@@ -26,7 +19,63 @@ interface Props {
 
 const GROUPS = [...new Set(MARKETS.map((m) => m.group))];
 
-export function Controls(p: Props) {
+interface MarketProps {
+  market: Market;
+  months: number;
+  onMarket: (id: string) => void;
+  onMonths: (m: number) => void;
+  data: DataInfo | null;
+  loading: { text: string; fraction?: number } | null;
+  loadError: string | null;
+  onRetry: () => void;
+}
+
+/** The market picker, with how much data loaded and a refresh for live prices. */
+export function MarketBar(p: MarketProps) {
+  const m = p.market;
+  return (
+    <section className="market-bar" aria-label="Market">
+      <div className="mb-row">
+        <select aria-label="Market" className="select" value={m.id} onChange={(e) => p.onMarket(e.target.value)}>
+          {GROUPS.map((g) => (
+            <optgroup key={g} label={g === "Built in" ? "Built in (old prices)" : `${g}, live from Deriv`}>
+              {MARKETS.filter((x) => x.group === g).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        {m.source === "deriv" && (
+          <select aria-label="How far back" className="select months" value={p.months} onChange={(e) => p.onMonths(Number(e.target.value))}>
+            {HISTORY.map((h) => <option key={h.months} value={h.months}>{h.label}</option>)}
+          </select>
+        )}
+      </div>
+      {p.loading && (
+        <div className="progress" role="status">
+          <div className="progress-track"><div className="progress-fill" style={{ width: `${Math.round((p.loading.fraction ?? 0.04) * 100)}%` }} /></div>
+          <p className="progress-text">{p.loading.text}</p>
+        </div>
+      )}
+      {p.loadError && (
+        <>
+          <p className="error" role="alert">{p.loadError}</p>
+          {m.source === "deriv" && <p className="data-meta">Check your connection and try again. If it keeps failing, Deriv may be down or blocked on this network.</p>}
+          <button className="btn quiet small more" onClick={p.onRetry}>Try again</button>
+        </>
+      )}
+      {p.data && !p.loading && (
+        <p className="data-meta">
+          {m.source === "deriv"
+            ? <>Live from Deriv: {fmtInt(p.data.count)} fifteen-minute candles since {fmtDate(p.data.from)}. <button className="linkbtn" onClick={p.onRetry}>Refresh</button></>
+            : <>Built in: 8 years of EUR/USD, 2014 to 2021. Good for testing, but too old for right now.</>}
+        </p>
+      )}
+      {p.data?.shortBy && !p.loading && <p className="warn">{p.data.shortBy} Testing what loaded.</p>}
+    </section>
+  );
+}
+
+/** Every rule and the account settings, shown when asked for. */
+export function Settings(p: Props) {
   const c = p.cfg, u = p.update, m = p.market;
   const toggleIn = <T extends string>(list: T[], v: T, on: boolean) => {
     const next = on ? [...list, v] : list.filter((x) => x !== v);
@@ -34,51 +83,6 @@ export function Controls(p: Props) {
   };
   return (
     <>
-      <section className="sec-data" aria-labelledby="data-h">
-        <h2 className="sec" id="data-h">Market</h2>
-        <div className="panel">
-          <div className="field">
-            <label htmlFor="market">Prices to test on</label>
-            <select id="market" className="select" value={m.id} onChange={(e) => p.onMarket(e.target.value)}>
-              {GROUPS.map((g) => (
-                <optgroup key={g} label={g === "Built in" ? "Built in, loads fast" : `${g}, live from Deriv`}>
-                  {MARKETS.filter((x) => x.group === g).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-                </optgroup>
-              ))}
-            </select>
-          </div>
-          {m.source === "deriv" && (
-            <div className="field">
-              <label htmlFor="months">How far back</label>
-              <select id="months" className="select" value={p.months} onChange={(e) => p.onMonths(Number(e.target.value))}>
-                {HISTORY.map((h) => <option key={h.months} value={h.months}>{h.label}</option>)}
-              </select>
-            </div>
-          )}
-
-          {p.loading && (
-            <div className="progress" role="status">
-              <div className="progress-track"><div className="progress-fill" style={{ width: `${Math.round((p.loading.fraction ?? 0.04) * 100)}%` }} /></div>
-              <p className="progress-text">{p.loading.text}</p>
-            </div>
-          )}
-          {p.loadError && (
-            <>
-              <p className="error" role="alert">{p.loadError}</p>
-              {m.source === "deriv" && <p className="data-meta">Check your connection and try again. If it keeps failing, Deriv may be down or blocked on this network. The built-in EUR/USD still works without it.</p>}
-              <button className="btn quiet small more" onClick={p.onRetry}>Try again</button>
-            </>
-          )}
-          {p.data && !p.loading && (
-            <p className="data-meta">
-              <strong>{fmtInt(p.data.count)}</strong> fifteen-minute candles, {fmtDate(p.data.from)} to {fmtDate(p.data.to - 900)} ({fmtSpan(p.data.from, p.data.to)}).
-              {m.source === "builtin" ? " Dukascopy bid prices." : " Deriv's own price feed, which can differ slightly from MT5."}
-            </p>
-          )}
-          {p.data?.shortBy && !p.loading && <p className="warn">{p.data.shortBy} Testing what loaded.</p>}
-        </div>
-      </section>
-
       <section className="sec-rules" aria-labelledby="rules-h">
         <div className="rules-head">
           <h2 className="sec" id="rules-h">Rules</h2>

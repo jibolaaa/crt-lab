@@ -23,7 +23,12 @@ export interface MatterRow {
 }
 
 export type ToWorker =
-  | { type: "load"; job: number; marketId: string; url?: string; symbol?: string; from?: number }
+  | { type: "load"; job: number; marketId: string; url: string }
+  | {
+      type: "series"; job: number; marketId: string;
+      t: Float64Array; o: Float64Array; h: Float64Array; l: Float64Array; c: Float64Array;
+      pipSize: number | null; shortBy: string | null;
+    }
   | { type: "run"; job: number; cfg: Config; matters: boolean }
   | { type: "candles"; job: number; from: number; to: number };
 

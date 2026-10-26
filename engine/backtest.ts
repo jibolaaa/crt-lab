@@ -22,7 +22,7 @@ import { dayKey, inSessions, nfpTimes, usDst } from "./calendar";
 import { build4h, structure, type Structure } from "./htf";
 import { findLevels, keyLevelFor, levelBook, markTouches, type Level, type LevelBook } from "./levels";
 import { stats } from "./stats";
-import { CONFLUENCES, type Config, type ConfKey, type Dir, type Funnel, type Grade, type RunResult, type Series, type Trade, type Zone } from "./types";
+import { CONFLUENCES, type Config, type ConfKey, type Dir, type Funnel, type Grade, type Live, type LiveSetup, type RunResult, type Series, type Trade, type Zone } from "./types";
 
 interface Swing { t: number; price: number; }
 interface H1 { t: number; o: number; h: number; l: number; c: number; }
@@ -53,6 +53,9 @@ interface Setup {
   extremeT: number;
   extremeI: number;
   done: boolean;
+  why: string | null; // why it ended
+  skipR: number | null;
+  trade: Trade | null;
 }
 
 interface Open { trade: Trade; stop: number; half: boolean; realized: number; lastDay: number; }
@@ -108,6 +111,7 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
     skippedNews: 0, skippedSession: 0, skippedPastMid: 0, skippedLowR: 0, skippedDailyCap: 0
   };
   let setups: Setup[] = [];
+  let recent: Setup[] = []; // today's and yesterday's setups, ended or not, for the live view
   let open: Open[] = [];
   const highs: Swing[] = [], lows: Swing[] = [];
   const h1: H1[] = [];
@@ -133,6 +137,54 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
     p.levels, cfg.keyLevelTfs, cfg.keyLevelKinds, st.dir, st.sweepT, st.sweepPrice,
     st.dir === 1 ? st.rangeLow : st.rangeHigh, days[st.d2].t, now, 0.1 * (st.rangeHigh - st.rangeLow)
   );
+
+  // Where today's setups stand at the last closed candle, in the order a trader would check them.
+  function liveView(): Live {
+    const prev = days[curDay - 1], today = days[curDay];
+    const bias = biasByWeek ? biasByWeek[weekOfDay[curDay]] : null;
+    const out: LiveSetup[] = [];
+    const base = (dir: Dir, rh: number, rl: number) => ({
+      dir, fromYesterday: false, why: null, rangeHigh: rh, rangeLow: rl, mid: (rh + rl) / 2,
+      rangeDate: prev.key * 86400, sweepDate: today.key * 86400,
+      sweepPrice: null, keyLevel: null, zone: null, level: null, skipR: null, trade: null
+    });
+    for (const dir of [1, -1] as Dir[]) {
+      const st = recent.find((x) => x.d2 === curDay && x.dir === dir);
+      if (!st) {
+        if (prev && biasByWeek && bias !== dir) out.push({ ...base(dir, prev.h, prev.l), stage: "blocked" });
+        continue;
+      }
+      out.push(describe(st));
+    }
+    // a sweep from yesterday can still give an entry today, and its trade may still be running
+    for (const st of recent) {
+      if (st.d2 !== curDay - 1) continue;
+      const enteredToday = !!st.trade && st.trade.entryT - 900 >= today.t;
+      const running = !!st.trade && open.some((op) => op.trade === st.trade);
+      const alive = !st.done && !needsKey(st); // once its day is over, a sweep that missed every key level can't reach one
+      if (alive || enteredToday || running) out.push({ ...describe(st), fromYesterday: true });
+    }
+    return { asOf: s.t[s.n - 1] + 900, dayStart: today.t, date: today.key * 86400, bias, setups: out };
+  }
+
+  function describe(st: Setup): LiveSetup {
+    const long = st.dir === 1;
+    const lv = {
+      dir: st.dir, fromYesterday: false, why: st.why, rangeHigh: st.rangeHigh, rangeLow: st.rangeLow, mid: st.mid,
+      rangeDate: days[st.d1].key * 86400, sweepDate: days[st.d2].key * 86400,
+      sweepPrice: st.swept ? st.sweepPrice : null,
+      keyLevel: st.keyLevel ? { tf: st.keyLevel.tf, kind: st.keyLevel.kind, top: st.keyLevel.top, bottom: st.keyLevel.bottom, t: st.keyLevel.t } : null,
+      zone: st.zone, level: null as number | null, skipR: st.skipR, trade: st.trade
+    };
+    if (st.done) return { ...lv, stage: st.trade ? "entered" : "ended" };
+    if (!st.swept) return { ...lv, stage: "waiting" };
+    if (cfg.requireKeyLevel && !st.keyLevel) return { ...lv, stage: "noKey" };
+    if (cfg.zone !== "off" && !st.zone) return { ...lv, stage: "key" };
+    if (!st.touched) return { ...lv, stage: "zone" };
+    const list = long ? highs : lows;
+    for (let x = list.length - 1; x >= 0; x--) if (list[x].t < st.extremeT) { lv.level = list[x].price; break; }
+    return { ...lv, stage: "touched" };
+  }
 
   // A 1-hour candle has closed: look for zones on setups that need one.
   const onHour = (doneAt: number) => {
@@ -256,11 +308,12 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
           if (st.d2 !== curDay || st.done) continue;
           st.insideClose = d.c > st.rangeLow && d.c < st.rangeHigh;
           const canNext = cfg.timing !== "sameDay" && st.swept && st.insideClose;
-          if (!canNext) st.done = true;
+          if (!canNext) { st.done = true; st.why = !st.swept ? "noSweep" : cfg.timing === "sameDay" ? "sameDayOnly" : "closedOutside"; }
           else if (cfg.timing === "nextDay") st.touched = false; // wait for a fresh retest after the close
         }
       }
       setups = setups.filter((st) => !st.done && di <= st.d2 + 1);
+      recent = recent.filter((st) => st.d2 >= di - 1);
       curDay = di;
       dayTrades = 0;
 
@@ -275,13 +328,15 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
           const sweptAllDay = dir === 1 ? today.l < prev.l : today.h > prev.h; // only for counting
           if (!allowed) { if (sweptAllDay) funnel.biasBlocked++; continue; }
           if (sweptAllDay) funnel.sweeps++;
-          setups.push({
+          const st: Setup = {
             dir, d1: di - 1, d2: di, rangeHigh: prev.h, rangeLow: prev.l, mid: (prev.h + prev.l) / 2, bias,
             swept: false, sweepT: 0, sweepI: 0, sweepPrice: 0, sweepHourT: 0, insideClose: null,
             keyLevel: null, keyChecked: false, keyCounted: false,
             zone: null, zoneCounted: false, touched: false, touchCounted: false, touchT: 0,
-            extreme: 0, extremeT: 0, extremeI: 0, done: false
-          });
+            extreme: 0, extremeT: 0, extremeI: 0, done: false, why: null, skipR: null, trade: null
+          };
+          setups.push(st);
+          recent.push(st);
         }
       }
     }
@@ -347,7 +402,7 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
       if (st.done) continue;
       const long = st.dir === 1;
       const onSweepDay = di === st.d2;
-      if (di > st.d2 + 1) { st.done = true; continue; }
+      if (di > st.d2 + 1) { st.done = true; st.why = "expired"; continue; }
 
       if (onSweepDay) {
         const through = long ? lo < st.rangeLow : hi > st.rangeHigh;
@@ -366,6 +421,7 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
         }
       } else if (st.swept && (long ? lo < st.sweepPrice : hi > st.sweepPrice)) {
         st.done = true; // the next day took out the sweep: the CRT failed
+        st.why = "brokeSweep";
         continue;
       }
       if (!st.swept) continue;
@@ -382,7 +438,7 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
       }
 
       // price got to the 50% level before we were in: the move happened without us
-      if (long ? hi >= st.mid : lo <= st.mid) { st.done = true; continue; }
+      if (long ? hi >= st.mid : lo <= st.mid) { st.done = true; st.why = "mid"; continue; }
 
       // zone touch and zone failure
       if (cfg.zone === "off") {
@@ -413,9 +469,9 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
       if (!allowedDay) { st.touched = false; continue; } // wait for a fresh retest on the right day
 
       st.done = true;
-      if (cfg.newsGuard && cfg.usdNews && nfpDays.has(days[di].key)) { funnel.skippedNews++; continue; }
-      if (!inSessions(t, cfg.sessions)) { funnel.skippedSession++; continue; }
-      if (cfg.maxPerDay > 0 && dayTrades >= cfg.maxPerDay) { funnel.skippedDailyCap++; continue; }
+      if (cfg.newsGuard && cfg.usdNews && nfpDays.has(days[di].key)) { funnel.skippedNews++; st.why = "news"; continue; }
+      if (!inSessions(t, cfg.sessions)) { funnel.skippedSession++; st.why = "session"; continue; }
+      if (cfg.maxPerDay > 0 && dayTrades >= cfg.maxPerDay) { funnel.skippedDailyCap++; st.why = "dailyCap"; continue; }
 
       const entry = long ? c + sp : c;
       const z = st.zone;
@@ -426,7 +482,7 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
       const stop = long ? anchor - cfg.stopBuffer : anchor + sp + cfg.stopBuffer;
       const risk = long ? entry - stop : stop - entry;
       const pastMid = long ? entry >= st.mid : entry <= st.mid;
-      if (pastMid || risk <= 0) { funnel.skippedPastMid++; continue; }
+      if (pastMid || risk <= 0) { funnel.skippedPastMid++; st.why = "pastMid"; continue; }
 
       const key = cfg.requireKeyLevel ? st.keyLevel : findKey(st, now);
       const conf = confluences(st, i, entry, key);
@@ -437,7 +493,12 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
       let target = long ? st.rangeHigh : st.rangeLow;
       let plannedR = (long ? target - entry : entry - target) / risk;
       if (plannedR > cfg.maxR) { target = long ? entry + cfg.maxR * risk : entry - cfg.maxR * risk; plannedR = cfg.maxR; }
-      if (plannedR < cfg.minR || (plannedR < cfg.fullR && !gradeAtLeast(grade, cfg.lowRGrade))) { funnel.skippedLowR++; continue; }
+      if (plannedR < cfg.minR || (plannedR < cfg.fullR && !gradeAtLeast(grade, cfg.lowRGrade))) {
+        funnel.skippedLowR++;
+        st.why = plannedR < cfg.minR ? "lowR" : "lowRGrade";
+        st.skipR = plannedR;
+        continue;
+      }
       const partial = cfg.partialAtTp1 && (long ? st.mid > entry && st.mid < target : st.mid < entry && st.mid > target);
 
       const trade: Trade = {
@@ -454,6 +515,8 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
         partialT: null, exitT: 0, exit: 0, reason: "end", r: 0
       };
       trades.push(trade);
+      st.why = "entered";
+      st.trade = trade;
       funnel.entries++;
       dayTrades++;
       open.push({ trade, stop, half: false, realized: 0, lastDay: st.d2 + 1 });
@@ -471,6 +534,8 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
     if ((t + 900) % 3600 === 0) closeHour();
   }
 
+  const live = s.n && curDay > 0 ? liveView() : null;
+
   // the data ends: close what's left at the last price
   if (s.n) {
     const last = s.n - 1;
@@ -480,7 +545,7 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
   const from = s.n ? s.t[0] : 0, to = s.n ? s.t[s.n - 1] + 900 : 0;
   const splitT = from + Math.round((to - from) * 0.7);
   return {
-    trades, funnel, splitT, from, to,
+    trades, funnel, live, splitT, from, to,
     seen: stats(trades.filter((x) => x.entryT < splitT), from, splitT),
     unseen: stats(trades.filter((x) => x.entryT >= splitT), splitT, to),
     all: stats(trades, from, to)

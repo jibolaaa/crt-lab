@@ -274,3 +274,28 @@ dialog.sheet[open] { animation: rise 0.22s ease-out; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- the simple, single-column page ---------- */
+.page.simple { max-width: 760px; display: flex; flex-direction: column; gap: 26px; }
+.page.simple > * { margin: 0; order: 0; } /* keep the order the page is written in */
+.tagline { margin-top: 22px !important; color: var(--fog); font-size: 15px; }
+.market-bar .mb-row { display: flex; gap: 8px; }
+.market-bar .mb-row .select { flex: 1; min-width: 0; }
+.market-bar .mb-row .select.months { flex: 0 0 auto; width: auto; }
+.market-bar .data-meta { margin-top: 10px; }
+.market-bar .linkbtn { font-size: inherit; padding: 0; }
+.now { background: var(--panel); border: 1px solid var(--rule); border-top: 3px solid var(--gold); border-radius: 12px; padding: 16px; }
+.now h2.sec { margin-bottom: 6px; }
+.now-meta, .now-range { margin: 0 0 6px; font-size: 14px; color: var(--fog); }
+.now-empty { margin: 0; color: var(--fog); }
+.now-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.now-item { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; align-items: start; padding: 12px; border-radius: 10px; background: var(--raise); }
+.now-item.hot { box-shadow: inset 3px 0 0 var(--gold); }
+.now-item b { display: block; font-weight: 650; margin-bottom: 2px; }
+.now-item span:not(.dir) { display: block; font-size: 14px; color: var(--fog); }
+.now-item .dir { margin-top: 2px; }
+.more-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.more-row .btn { flex: 1; min-width: 140px; }
+.more-row .btn.on { border-color: var(--gold); color: var(--gold); }
+.drawer { display: flex; flex-direction: column; gap: 28px; }
+.page.simple .sec-verdict h2.sec { margin-bottom: 10px; }

@@ -40,6 +40,9 @@ export const MARKETS: Market[] = [
   { id: "OTC_DJI", name: "Wall Street 30", group: "US indices", source: "deriv", symbol: "OTC_DJI", unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } }
 ];
 
+/** The page opens on a live market, so "right now" has something to read. */
+export const DEFAULT_MARKET = "R_75";
+
 export const marketById = (id: string) => MARKETS.find((m) => m.id === id) ?? MARKETS[0];
 
 /** History lengths offered for live Deriv candles, in months. */
