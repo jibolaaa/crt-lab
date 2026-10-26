@@ -1,0 +1,13 @@
+{
+  "id": "eurusd-builtin",
+  "symbol": "EURUSD",
+  "name": "EUR/USD",
+  "source": "Dukascopy bid prices via the FX-Data project on GitHub",
+  "timeframe": 900,
+  "count": 195057,
+  "start": 1388613600,
+  "end": 1640907900,
+  "pip": 0.0001,
+  "digits": 5,
+  "file": "eurusd-15m.bin"
+}
