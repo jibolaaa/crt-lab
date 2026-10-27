@@ -139,7 +139,7 @@ export const DEFAULT_CONFIG: Config = {
   freshFrom: "candle1",
   newsGuard: true,
   sessions: [],
-  partialAtTp1: false,
+  partialAtTp1: true, // TP1: half closes at candle 1's 50% level, then the stop moves to the entry
   timeStop: false, // trades run until the stop or the target
   spread: 0.0001,
   stop: "ob",
