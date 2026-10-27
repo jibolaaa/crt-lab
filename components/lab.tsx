@@ -8,7 +8,7 @@ import type { Columns, DataInfo, FromWorker, MatterRow, Request, ScanMarket, Sto
 import { combine, marketCfg, type ScanRow } from "../lib/scan";
 import { readHash, writeHash, type View } from "../lib/urlstate";
 import { fmtR } from "../lib/format";
-import { MarketBar, Settings } from "./controls";
+import { CheckFilter, MarketBar, Settings } from "./controls";
 import { Now } from "./now";
 import { Funnel, Grades, Matters, StatsTable, Targets, Verdict } from "./results";
 import { Trades, type Candles } from "./trades";
@@ -407,6 +407,7 @@ export default function Lab() {
             ? "One market in detail: its setups, trades and charts."
             : "Your rules on all your markets at once: every setup close to an entry, and the total result."}
         </p>
+        <CheckFilter value={cfg.minPct} onChange={(v) => update({ minPct: v })} />
 
         {view === "one" ? (
           <>

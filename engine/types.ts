@@ -161,7 +161,7 @@ export const DEFAULT_CONFIG: Config = {
   lowRPct: 0,
   maxR: 4, // the best cap on the first 70% of EUR/USD 2014 to 2021 with these rules (see npm run report)
   mustHave: [],
-  minPct: 60, // only setups meeting 60% of the checklist: positive on both parts of EUR/USD 2014 to 2021, not proven
+  minPct: 0, // every setup, with its checklist percent. 60% did best on EUR/USD 2014 to 2021 but takes far fewer trades
   maxPerDay: 3,
   dayStart: "utc",
   weekendClosed: true,

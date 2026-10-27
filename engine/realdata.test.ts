@@ -95,7 +95,16 @@ describe.each(CONFIGS)("real EURUSD, %s", (_name, over) => {
       expect(tr.exitT).toBeGreaterThanOrEqual(tr.entryT);
       if (tr.zone) expect(tr.zone.t).toBeLessThan(tr.entryT);
       if (tr.reason === "stop") expect(tr.r).toBeLessThanOrEqual(-0.999);
-      if (tr.reason === "tp2" || tr.reason === "breakeven") expect(tr.r).toBeGreaterThan(0);
+      if (tr.reason === "tp2") expect(tr.r).toBeGreaterThan(0);
+      if (tr.reason === "breakeven") {
+        expect(tr.partialT).not.toBeNull();
+        // the rest closes back at the entry, unless price gapped past it (over a weekend), when it closes at that candle's open
+        if (d * (tr.exit - tr.entry) < -1e-9) {
+          const g = lastBefore(full, tr.exitT + 1);
+          expect(full.t[g]).toBe(tr.exitT);
+          expect(tr.exit).toBeCloseTo(full.o[g] + (d === -1 ? cfg.spread : 0), 7);
+        } else expect(tr.r).toBeGreaterThan(0);
+      }
       const i = lastBefore(full, tr.entryT);
       if (cfg.zoneInKiller && tr.zone) expect(d * (tr.bodyEdge - (d === 1 ? tr.zone.top : tr.zone.bottom))).toBeGreaterThanOrEqual(-1e-9);
       if (tr.model === "shift") {

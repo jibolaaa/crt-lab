@@ -333,3 +333,4 @@ dialog.sheet[open] { animation: rise 0.22s ease-out; }
 table.grid td .mk-link { font-size: 15px; color: var(--paper); text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; }
 .mk-link:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 3px; }
 .view-hint { margin: -14px 0 0; font-size: 14px; color: var(--fog); }
+.check-filter fieldset.group { margin: 0; }

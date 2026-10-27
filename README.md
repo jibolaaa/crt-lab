@@ -11,7 +11,7 @@ For a sell (buys are the mirror image):
 3. **The zone.** After the sweep, an order block, a fair value gap, or both overlapping, inside the killer zone (between candle 1's body top and the sweep's tip). Daily CRTs use 1-hour zones, weekly CRTs 4-hour zones.
 4. **The entry**, in candle 2 once it has swept, or in candle 3: price comes back into the zone, then a candle closes below the last swing low (the BOS). Daily CRTs look for the BOS on 5-minute candles, weekly CRTs on 15-minute candles. The built-in EUR/USD only has 15-minute prices, so its daily CRTs use 15-minute candles for the BOS. A retest entry (a limit at the order block the BOS left) and a QM entry are there to compare.
 5. **Stop and target.** The stop goes beyond the 1-hour order block (4-hour for weekly CRTs). The target is candle 1's low, capped at 4R. Targets under 2R are skipped. TP1: half closes at candle 1's 50% level and the stop moves to the entry. Trades run until they hit the stop or the target. At most 3 new trades a day, and never two at once the same way on the same CRT.
-6. **The checklist.** Only setups that meet 60% or more of the checklist below are taken.
+6. **The checklist.** Every setup is taken and shows how much of the checklist below it meets. A switch at the top keeps only those at 50% or 60% or more.
 7. **Direction.** US indices tend to rise over time, so on them only buys are taken (with the drift). Other markets trade both ways.
 
 ## The call
@@ -34,10 +34,19 @@ Under More detail, the same rules run with the target capped at 2R, 3R, 4R, 5R, 
 
 ## What it found on EUR/USD, 2014 to 2021
 
-With today's rules: 102 trades in 8 years (about 13 a year), 36% won, and +2.5R in all. The first 70% of the data lost 6.3R; the last 30%, kept aside for checking, made +8.8R over 28 trades. The worst run cost 14.7R from a peak. At 1% risk a trade that's +1% over 8 years. On 12 runs of random prices the same rules averaged −10.0R, and 3 runs did as well or better, so this is within what luck gives.
+Today's rules take every setup and show its checklist percent. A one-tap switch at the top of the page keeps only setups that meet 50% or 60% of the checklist. On 8 years of EUR/USD:
+
+| Take | Trades | Won | Total | Last 30% |
+|---|---|---|---|---|
+| Every setup | 442 (about 55 a year) | 31% | −77.1R | −21.5R |
+| 50% or more | 199 | 33% | −31.9R | −0.4R |
+| 60% or more | 102 | 36% | +2.5R | +8.8R |
+
+More trades meant worse results. Even 60% or more is within what luck gives: on 12 runs of random prices it averaged −10.0R, and 3 runs did as well or better.
+
+With 60% or more:
 
 - **Entries in candle 2** doubled the trades (102 instead of 54 with candle 3 only) but cut the total from +14.8R to +2.5R.
-- **The 60% lowest percent.** Results got better as the lowest percent went up: −77.1R with any percent, −31.9R from 50%, +2.5R from 60%.
 - **TP1 at the 50% level** raised the win rate with about the same total (with candle 3 entries: 43% won instead of 30%, +14.8R instead of +14.9R).
 - **Holding to the stop or target** did better than closing at the end of the next day (+2.5R against −3.6R).
 - **The 4R cap** did best of the caps on the first 70% (−6.3R), then made +8.8R on the last 30%.

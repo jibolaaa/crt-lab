@@ -8,7 +8,7 @@ const result = (r: number) => (r >= 0.05 ? `made ${amount(r)}` : r <= -0.05 ? `l
 
 export function verdict(res: RunResult) {
   const n = res.all.trades, total = res.all.totalR, late = res.unseen;
-  if (!n) return { line: "No trades with these rules.", notes: ["Nothing got through every rule. Try switching one off."], cautions: [] as string[] };
+  if (!n) return { line: "No trades with these rules.", notes: ["Nothing got through every rule. Try \"Every setup\" above, or switch a rule off."], cautions: [] as string[] };
 
   const line = `These rules ${result(total)} over ${plural(n, "trade")}, winning ${Math.round(res.all.winRate * 100)}% of them.`;
   const notes = [
