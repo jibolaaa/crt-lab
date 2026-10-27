@@ -10,7 +10,7 @@ export function verdict(res: RunResult) {
   const n = res.all.trades, total = res.all.totalR, late = res.unseen;
   if (!n) return { line: "No trades with these rules.", notes: ["Nothing got through every rule. Try switching one off."], cautions: [] as string[] };
 
-  const line = `These rules ${result(total)} over ${plural(n, "trade")}.`;
+  const line = `These rules ${result(total)} over ${plural(n, "trade")}, winning ${Math.round(res.all.winRate * 100)}% of them.`;
   const notes = [
     late.trades
       ? `On the last 30%, kept aside for checking, they ${result(late.totalR)} over ${plural(late.trades, "trade")}.`

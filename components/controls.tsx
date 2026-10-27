@@ -65,7 +65,7 @@ export function MarketBar(p: MarketProps) {
       {p.data && !p.loading && (
         <p className="data-meta">
           {m.source === "deriv"
-            ? <>Live from Deriv: {fmtInt(p.data.count)} fifteen-minute candles since {fmtDate(p.data.from)}. <button className="linkbtn" onClick={p.onRetry}>Refresh</button></>
+            ? <>Live from Deriv: {fmtInt(p.data.count)} {p.data.dt <= 300 ? "five" : "fifteen"}-minute candles since {fmtDate(p.data.from)}. <button className="linkbtn" onClick={p.onRetry}>Refresh</button></>
             : <>Built in: 8 years of EUR/USD, 2014 to 2021. Good for testing, but too old for right now.</>}
         </p>
       )}
@@ -139,8 +139,8 @@ export function Settings(p: Props) {
           <h3 className="sub">The entry</h3>
           <Choice
             legend="Entry" name="entry" value={c.entry} onChange={(v) => u({ entry: v })}
-            options={[["qm", "QM limit"], ["shift", "Shift close"]]}
-            hint="QM: in the killer zone, an A-shape beyond the swing before it, then a close past the low between them sets a limit at that swing (the QM line). Shift close: price comes back into a zone, then a candle closes past the last swing."
+            options={[["shift", "BOS close"], ["retest", "Retest after the BOS"], ["qm", "QM limit"]]}
+            hint="BOS close: price comes back into the zone, then a candle closes past the last swing (5-minute for daily CRTs on live prices, 15-minute for weekly). Retest: after that BOS, a limit at the order block it left. QM: an A-shape and a shift in the killer zone, then a limit at the QM line."
           />
           <Choice
             legend="Entry from" name="timing" value={c.timing} onChange={(v) => u({ timing: v })}
@@ -151,12 +151,19 @@ export function Settings(p: Props) {
             <NumberField label="Candles to wait" unit="after candle 2" value={c.entryWindow} min={1} max={10} onChange={(v) => u({ entryWindow: Math.max(1, Math.round(v)) })} />
           </div>
           <span className="hint">How long the entry can still come after candle 2, while the range holds.</span>
-          {c.entry === "shift" && (
-            <Choice
-              legend="Zone" name="zone" value={c.zone} onChange={(v) => u({ zone: v })}
-              options={[["obFvg", "Order block + gap"], ["fvg", "Gap only"], ["ob", "Order block only"], ["off", "No zone"]]}
-              hint="A 1-hour zone (4-hour for weekly CRTs) that forms after the sweep. Price has to come back into it before the shift."
-            />
+          {c.entry !== "qm" && (
+            <>
+              <Choice
+                legend="Zone" name="zone" value={c.zone} onChange={(v) => u({ zone: v })}
+                options={[["any", "OB, FVG or both"], ["obFvg", "OB with an FVG"], ["fvg", "FVG only"], ["ob", "OB only"], ["off", "No zone"]]}
+                hint="A 1-hour zone (4-hour for weekly CRTs) that forms after the sweep. Price has to come back into it before the BOS."
+              />
+              <Toggle
+                label="Zone inside the killer zone"
+                hint="Between candle 1's body and the sweep's tip."
+                checked={c.zoneInKiller} onChange={(v) => u({ zoneInKiller: v })}
+              />
+            </>
           )}
           <Choice
             legend="Swing size" name="swing" value={String(c.swing15)} onChange={(v) => u({ swing15: Number(v) })}
@@ -184,7 +191,7 @@ export function Settings(p: Props) {
             <NumberField label="Skip under" unit="R" value={c.minR} min={0} max={100} onChange={(v) => u({ minR: v })} />
             <NumberField label="Cap the target at" unit="R" value={c.maxR >= 1000 ? 0 : c.maxR} min={0} max={100} onChange={(v) => u({ maxR: v > 0 ? v : 1000 })} />
           </div>
-          <span className="hint">0 means no cap.</span>
+          <span className="hint">0 means no cap. More detail has a table of how each cap did.</span>
           <div className="numrow" style={{ marginTop: 14 }}>
             <NumberField label="Below this target" unit="R" value={c.fullR} min={0} max={100} onChange={(v) => u({ fullR: v })} />
             <NumberField label="Need at least" unit="%" value={c.lowRPct} min={0} max={100} onChange={(v) => u({ lowRPct: v })} />
@@ -236,7 +243,7 @@ export function Settings(p: Props) {
   );
 }
 
-function Choice<T extends string>(p: { legend: string; name: string; value: T; options: [T, string][]; onChange: (v: T) => void; hint?: string }) {
+export function Choice<T extends string>(p: { legend: string; name: string; value: T; options: [T, string][]; onChange: (v: T) => void; hint?: string }) {
   const id = useId();
   return (
     <fieldset className="group" aria-describedby={p.hint ? `${id}-hint` : undefined}>
@@ -315,7 +322,7 @@ function Sessions(p: { value: Session[]; onChange: (s: Session[]) => void }) {
   );
 }
 
-function NumberField(p: { label: string; unit: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+export function NumberField(p: { label: string; unit: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
   const id = useId();
   const shown = String(+p.value.toFixed(6));
   const [text, setText] = useState(shown);

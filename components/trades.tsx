@@ -34,9 +34,11 @@ interface Props {
   getCandles: (from: number, to: number) => Promise<Candles>;
   money: MoneyResult | null;
   moneyCfg: MoneyCfg;
+  /** Seconds per candle in the loaded prices. */
+  dt: number;
 }
 
-export function Trades({ result, market, getCandles, money, moneyCfg }: Props) {
+export function Trades({ result, market, getCandles, money, moneyCfg, dt }: Props) {
   const [filter, setFilter] = useState<Filter>("all");
   const [shown, setShown] = useState(25);
   const [open, setOpen] = useState<Trade | null>(null);
@@ -66,7 +68,7 @@ export function Trades({ result, market, getCandles, money, moneyCfg }: Props) {
               <button className="trow" onClick={() => setOpen(t)}>
                 <span className={`dir ${t.dir === 1 ? "buy" : "sell"}`}>{t.dir === 1 ? "Buy" : "Sell"}</span>
                 <span className="t-main">
-                  <span className="t-date">{fmtDay(t.entryT - 900)} {new Date(t.entryT * 1000).getUTCFullYear()} <span className="grade" aria-label={`${Math.round(t.pct)}% of the checklist`}>{Math.round(t.pct)}%</span></span>
+                  <span className="t-date">{fmtDay(t.entryT - 1)} {new Date(t.entryT * 1000).getUTCFullYear()} <span className="grade" aria-label={`${Math.round(t.pct)}% of the checklist`}>{Math.round(t.pct)}%</span></span>
                   <span className="t-why">{t.tf === "week" ? "Weekly CRT. " : ""}{SHORT[t.reason]}</span>
                 </span>
                 <span className="t-end">
@@ -79,14 +81,14 @@ export function Trades({ result, market, getCandles, money, moneyCfg }: Props) {
         })}
       </ul>
       {list.length > shown && <button className="btn quiet small more" onClick={() => setShown((n) => n + 50)}>Show {Math.min(50, list.length - shown)} more</button>}
-      {open && <TradeSheet trade={open} market={market} getCandles={getCandles} money={money?.byId.get(open.id) ?? null} moneyCfg={moneyCfg} onClose={() => setOpen(null)} />}
+      {open && <TradeSheet trade={open} market={market} getCandles={getCandles} money={money?.byId.get(open.id) ?? null} moneyCfg={moneyCfg} dt={dt} onClose={() => setOpen(null)} />}
     </section>
   );
 }
 
-function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, onClose }: {
+function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, dt, onClose }: {
   trade: Trade; market: Market; getCandles: (from: number, to: number) => Promise<Candles>;
-  money: TradeMoney | null; moneyCfg: MoneyCfg; onClose: () => void;
+  money: TradeMoney | null; moneyCfg: MoneyCfg; dt: number; onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [candles, setCandles] = useState<Candles | null>(null);
@@ -109,7 +111,7 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, onClose }: 
   const weekly = t.tf === "week";
   // a Monday's candle starts on Sunday evening, so name the day by its middle
   const rangeDay = weekly ? "Week" : fmtDay(t.rangeDayT + 12 * 3600).split(" ")[0];
-  const entryChart = weekly ? "1-hour" : "15-minute";
+  const entryChart = weekly || dt >= 900 ? "15-minute" : "5-minute";
   const zoneChart = weekly ? "4-hour" : "1-hour";
   const steps: { t?: number; day?: string; text: string }[] = [
     { day: rangeDay, text: `Candle 1 (${weekly ? `the week of ${fmtDate(t.rangeDayT + 12 * 3600)}` : "the range day"}): high ${px(t.rangeHigh)}, low ${px(t.rangeLow)}, 50% at ${px(t.mid)}.` },
@@ -123,14 +125,20 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, onClose }: 
     const q = t.qm;
     steps.push({ t: q.headT, text: `A-shape ${long ? "bottom" : "top"} at ${px(q.head)}, beyond the ${px(q.level)} ${long ? "low" : "high"} before it (the QM line).` });
     steps.push({ t: q.smsT, text: `A ${entryChart} candle closed ${long ? "above" : "below"} ${px(q.smsLevel)}: the shift. ${long ? "Buy" : "Sell"} limit set at ${px(q.level)}.` });
-    steps.push({ t: t.entryT - (weekly ? 3600 : 900), text: `Price came back to the line. ${long ? "Bought" : "Sold"} at ${px(t.entry)}, on candle ${t.entryCandle} of the CRT.` });
+    steps.push({ t: t.entryT, text: `Price came back to the line. ${long ? "Bought" : "Sold"} at ${px(t.entry)}, on candle ${t.entryCandle} of the CRT.` });
   } else {
     if (t.zone) {
       const kind = t.zone.fvg && t.zone.ob ? "order block and gap" : t.zone.fvg ? "gap" : "order block";
       steps.push({ t: t.zone.t, text: `${zoneChart} ${kind} finished forming: ${px(t.zone.bottom)} to ${px(t.zone.top)}.` });
       if (t.touchT) steps.push({ t: t.touchT, text: "Price came back into the zone." });
     }
-    steps.push({ t: t.entryT, text: `A ${entryChart} candle closed ${long ? "above" : "below"} the ${px(t.mssLevel)} swing ${long ? "high" : "low"}. ${long ? "Bought" : "Sold"} at ${px(t.entry)}, on candle ${t.entryCandle} of the CRT.` });
+    const r = t.retest;
+    if (r) {
+      steps.push({ t: r.bosT, text: `A ${entryChart} candle closed ${long ? "above" : "below"} the ${px(t.mssLevel)} swing ${long ? "high" : "low"} (the BOS). ${long ? "Buy" : "Sell"} limit set at ${px(r.level)}, the order block it left (${px(r.bottom)} to ${px(r.top)}).` });
+      steps.push({ t: t.entryT, text: `Price came back to it. ${long ? "Bought" : "Sold"} at ${px(t.entry)}, on candle ${t.entryCandle} of the CRT.` });
+    } else {
+      steps.push({ t: t.entryT, text: `A ${entryChart} candle closed ${long ? "above" : "below"} the ${px(t.mssLevel)} swing ${long ? "high" : "low"} (the BOS). ${long ? "Bought" : "Sold"} at ${px(t.entry)}, on candle ${t.entryCandle} of the CRT.` });
+    }
   }
   steps.push({
     text: `Stop ${px(t.stop)}, risking ${units(t.risk, market)}. Target ${px(t.tp2)}, ${t.plannedR.toFixed(1)}R away` +
@@ -147,7 +155,7 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, onClose }: 
       <div className="sheet-inner">
         <div className="sheet-head">
           <div>
-            <h3 id="sheet-h">{long ? "Buy" : "Sell"} on {fmtDate(t.entryT - 900)}, {weekly ? "weekly" : "daily"} CRT, {Math.round(t.pct)}% of the checklist</h3>
+            <h3 id="sheet-h">{long ? "Buy" : "Sell"} on {fmtDate(t.entryT - 1)}, {weekly ? "weekly" : "daily"} CRT, {Math.round(t.pct)}% of the checklist</h3>
             <p className={tone(t.r)}>{fmtR(t.r, 2)}{money && !money.skipped ? ` (${fmtUsd(money.pnlUsd)})` : ""}. {SHORT[t.reason]}.</p>
           </div>
           <button className="close" onClick={() => ref.current?.close()} aria-label="Close">
@@ -165,7 +173,8 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, onClose }: 
             {t.keyLevel && <li><i className="box" style={{ borderColor: "rgba(154,163,176,0.6)", background: "rgba(154,163,176,0.12)" }} />Key level</li>}
             {t.zone && !t.qm && <li><i className="box" style={{ borderColor: "rgba(227,176,75,0.6)", background: "rgba(227,176,75,0.13)" }} />{zoneChart} zone</li>}
             {t.qm && <li><i className="dash" style={{ borderColor: "var(--gold)" }} />QM line</li>}
-            <li><i className="dash" style={{ borderColor: "var(--paper)" }} />{t.qm ? "The shift" : "Swing that broke"}</li>
+            {t.retest && <li><i className="box" style={{ borderColor: "rgba(236,230,214,0.5)", background: "rgba(236,230,214,0.10)" }} />Order block the BOS left</li>}
+            <li><i className="dash" style={{ borderColor: "var(--paper)" }} />{t.qm ? "The shift" : "Swing that broke (BOS)"}</li>
             <li><i className="dash" style={{ borderColor: "var(--down)" }} />Stop</li>
             <li><i style={{ borderColor: "var(--up)" }} />Target</li>
           </ul>

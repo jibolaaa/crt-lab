@@ -55,6 +55,13 @@ describe("loading candles from Deriv", () => {
     expect(log[0].req).toMatchObject({ ticks_history: "frxEURUSD", style: "candles", granularity: 900, end: "latest", count: 5000 });
     expect(log[1].req.end).toBe(String(all[7000].epoch - 1));
   });
+  it("asks for 5-minute candles when told to, and keeps only ones on the 5-minute grid", async () => {
+    const five = Array.from({ length: 600 }, (_, i) => ({ epoch: START + i * 300, open: 1.1, high: 1.1002, low: 1.0998, close: 1.1001 }));
+    const { make, log } = server({ candles: [...five, { epoch: START + 600 * 300 + 7, open: 1, high: 1, low: 1, close: 1 }] });
+    const res = await loadDerivCandles("R_75", { from: START, granularity: 300, makeSocket: make });
+    expect(log[0].req).toMatchObject({ granularity: 300 });
+    expect(res.candles.length).toBe(600);
+  });
 
   it("says so when Deriv runs out of history first", async () => {
     const all = candles(6000);

@@ -1,4 +1,4 @@
-// Loads 15-minute candles from Deriv's public price feed, straight from the
+// Loads candles (5- or 15-minute) from Deriv's public price feed, straight from the
 // browser. Deriv returns up to 5,000 candles per request, so this walks
 // backwards from now until it reaches the start date or Deriv runs out.
 
@@ -10,7 +10,6 @@ export const ENDPOINTS = [
 ];
 
 const PAGE = 5000;
-const GRANULARITY = 900;
 
 type SocketLike = Pick<WebSocket, "send" | "close" | "readyState"> & {
   onopen: ((ev: Event) => unknown) | null;
@@ -22,6 +21,8 @@ type SocketLike = Pick<WebSocket, "send" | "close" | "readyState"> & {
 export interface LoadOptions {
   /** Oldest time wanted, in UTC seconds. */
   from: number;
+  /** Candle length in seconds: 300 for 5-minute, 900 for 15-minute (the default). */
+  granularity?: number;
   onProgress?: (count: number, oldest: number) => void;
   makeSocket?: (url: string) => SocketLike;
   /** Wait between retries after Deriv asks to slow down (ms). */
@@ -97,6 +98,7 @@ function errorText(err: { code?: string; message?: string }) {
 export async function loadDerivCandles(symbol: string, opts: LoadOptions): Promise<LoadResult> {
   const make = opts.makeSocket ?? ((url: string) => new WebSocket(url) as unknown as SocketLike);
   const openTimeout = opts.openTimeout ?? 10000, replyTimeout = opts.replyTimeout ?? 20000, retryWait = opts.retryWait ?? 3000;
+  const granularity = opts.granularity ?? 900;
   let lastError: Error | null = null;
 
   for (const endpoint of ENDPOINTS) {
@@ -113,7 +115,7 @@ export async function loadDerivCandles(symbol: string, opts: LoadOptions): Promi
 
     try {
       for (let page = 0; page < 200; page++) {
-        const msg = await feed.ask({ ticks_history: symbol, style: "candles", granularity: GRANULARITY, end, count: PAGE }, replyTimeout);
+        const msg = await feed.ask({ ticks_history: symbol, style: "candles", granularity, end, count: PAGE }, replyTimeout);
         const err = msg.error as { code?: string; message?: string } | undefined;
         if (err) {
           if (err.code === "RateLimit" && tries < 4) { tries++; await sleep(retryWait * tries); page--; continue; }
@@ -129,7 +131,7 @@ export async function loadDerivCandles(symbol: string, opts: LoadOptions): Promi
         let got = 0, pageOldest = Infinity;
         for (const r of rows) {
           const epoch = Number(r.epoch);
-          if (!Number.isFinite(epoch) || epoch % GRANULARITY !== 0) continue;
+          if (!Number.isFinite(epoch) || epoch % granularity !== 0) continue;
           const c = { epoch, open: +r.open, high: +r.high, low: +r.low, close: +r.close };
           if (![c.open, c.high, c.low, c.close].every(Number.isFinite)) continue;
           if (!byEpoch.has(epoch)) got++;

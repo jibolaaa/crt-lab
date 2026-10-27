@@ -6,9 +6,12 @@ export interface Variant { key: string; label: string; change: Partial<Config> }
 
 export function variantsFor(cfg: Config): Variant[] {
   const v: Variant[] = [];
-  v.push(cfg.entry === "qm"
-    ? { key: "entry", label: "Enter on the shift close instead of a QM limit", change: { entry: "shift" } }
-    : { key: "entry", label: "Enter on a QM limit instead of the shift close", change: { entry: "qm" } });
+  if (cfg.entry !== "shift") v.push({ key: "e-bos", label: "Enter on the BOS close", change: { entry: "shift" } });
+  if (cfg.entry !== "retest") v.push({ key: "e-retest", label: "Enter on the retest after the BOS", change: { entry: "retest" } });
+  if (cfg.entry !== "qm") v.push({ key: "e-qm", label: "Enter on a QM limit", change: { entry: "qm" } });
+  if (cfg.entry !== "qm") v.push(cfg.zoneInKiller
+    ? { key: "kz", label: "Zone anywhere after the sweep", change: { zoneInKiller: false } }
+    : { key: "kz", label: "Zone inside the killer zone", change: { zoneInKiller: true } });
   if (cfg.crt.length === 2) {
     v.push({ key: "day", label: "Daily CRTs only", change: { crt: ["day"] } });
     v.push({ key: "week", label: "Weekly CRTs only", change: { crt: ["week"] } });
@@ -28,9 +31,6 @@ export function variantsFor(cfg: Config): Variant[] {
   v.push(cfg.stop === "sweep"
     ? { key: "stop", label: "Stop beyond the order block", change: { stop: "ob" } }
     : { key: "stop", label: "Stop beyond the sweep", change: { stop: "sweep" } });
-  v.push(cfg.maxR >= 1000
-    ? { key: "cap", label: "Cap the target at 6R", change: { maxR: 6 } }
-    : { key: "cap", label: "No cap on the target", change: { maxR: 1000 } });
   if (cfg.minR > 0) v.push({ key: "minr", label: "Take targets under 2R too", change: { minR: 0, fullR: 0 } });
   if (cfg.fullR > cfg.minR && cfg.lowRPct > 0) v.push({ key: "pct", label: `Any percent from ${cfg.minR}R`, change: { lowRPct: 0 } });
   v.push(cfg.partialAtTp1

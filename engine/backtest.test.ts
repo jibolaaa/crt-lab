@@ -27,7 +27,7 @@ function make(at: Record<string, OHLC>, days = 3): Series {
 // the sweep, half at 50%, no key level or R limits, and a deeper sweep or the 50% level cancels.
 const CLASSIC: Partial<Config> = {
   crt: ["day"], entry: "shift", timing: "either", entryWindow: 1, deeperSweeps: false, midCancels: true,
-  freshFrom: "candle2", keyLevelKinds: ["ob", "breaker", "fvg"],
+  freshFrom: "candle2", keyLevelKinds: ["ob", "breaker", "fvg"], zone: "obFvg", zoneInKiller: false,
   bias: "off", newsGuard: false, requireKeyLevel: false, stop: "sweep", stopBuffer: 0,
   partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0
 };

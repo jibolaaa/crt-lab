@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { CONFLUENCES, WEIGHT, type Config, type RunResult, type Stats, type Trade } from "../engine";
 import type { Market } from "../lib/markets";
 import { fmtUsd, type MoneyCfg, type MoneyResult } from "../lib/money";
-import type { DataInfo, MatterRow } from "../lib/protocol";
+import type { DataInfo, MatterRow, TargetRow } from "../lib/protocol";
 import { fmtDate, fmtInt, fmtMonth, fmtNum, fmtPct, fmtR, fmtSpan } from "../lib/format";
 import { CONF_LABEL } from "../lib/confluences";
 import { verdict } from "../lib/verdict";
@@ -101,7 +101,7 @@ function Equity({ result }: { result: RunResult }) {
         </div>
       )}
       {short && (
-        <div className="eq-axis" aria-hidden><span>{fmtMonth(result.from)}</span><span>{fmtMonth(result.to - 900)}</span></div>
+        <div className="eq-axis" aria-hidden><span>{fmtMonth(result.from)}</span><span>{fmtMonth(result.to - 1)}</span></div>
       )}
     </figure>
   );
@@ -141,6 +141,41 @@ export function StatsTable({ result }: { result: RunResult | null }) {
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+// ---------- which target cap? ----------
+export function Targets({ result, rows, cfg }: { result: RunResult | null; rows: TargetRow[] | null; cfg: Config }) {
+  if (!result) return null;
+  const best = rows?.length ? rows.reduce((a, b) => (b.seenR > a.seenR + 1e-9 ? b : a)) : null;
+  const mine = (r: TargetRow) => (r.cap >= 1000 ? cfg.maxR >= 1000 : Math.abs(r.cap - cfg.maxR) < 1e-9);
+  return (
+    <section className="sec-targets" aria-labelledby="targets-h">
+      <h2 className="sec" id="targets-h">Which target?</h2>
+      <p className="sec-note">
+        Your rules with the target capped at each R, or at candle 1&apos;s far end if that&apos;s closer. Trades under {cfg.minR}R are still skipped. The cap that did best on the first 70% is marked, and the last 30% shows whether it held up.
+      </p>
+      {!rows ? <p className="sec-note">Working it out…</p> : (
+        <div className="table-wrap">
+          <table className="grid">
+            <thead><tr><th scope="col">Cap</th><th scope="col">Trades</th><th scope="col">Won</th><th scope="col">Average</th><th scope="col">Total</th><th scope="col">Last 30%</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.cap} className={r === best ? "best" : ""}>
+                  <th scope="row">{r.cap >= 1000 ? "No cap" : `${r.cap}R`}{mine(r) ? " (yours)" : ""}{r === best ? " ★" : ""}</th>
+                  <td>{fmtInt(r.trades)}</td>
+                  <td>{r.trades ? fmtPct(r.winRate) : "–"}</td>
+                  <td>{r.trades ? <span className={tone(r.avgR, 0.005)}>{fmtR(r.avgR, 2)}</span> : "–"}</td>
+                  <td className={tone(r.totalR)}>{fmtR(r.totalR)}</td>
+                  <td className={tone(r.lateR)}>{fmtR(r.lateR)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {best && <p className="sec-note" style={{ marginTop: 10 }}>★ best on the first 70%: {best.cap >= 1000 ? "no cap" : `${best.cap}R`}, which then {best.lateR >= 0.05 ? `made ${fmtR(best.lateR)}` : best.lateR <= -0.05 ? `lost ${fmtR(-best.lateR).replace("+", "")}` : "broke even"} on the last 30%.</p>}
     </section>
   );
 }
@@ -209,7 +244,8 @@ export function Funnel({ result, cfg }: { result: RunResult | null; cfg: Config 
     }
   ];
   if (cfg.requireKeyLevel) items.push({ label: "The sweep reached a higher-timeframe key level", n: f.keyLevels });
-  items.push({ label: "Candle 2 closed back inside candle 1", n: f.closedInside });
+  // with entries allowed on candle 2, a trade can come before candle 2 closes
+  if (cfg.timing === "nextDay") items.push({ label: "Candle 2 closed back inside candle 1", n: f.closedInside });
   if (cfg.entry === "qm") {
     items.push({ label: "An A-shape and a shift set a QM limit", n: f.zones });
     items.push({ label: "Price came back to the limit", n: f.touches });

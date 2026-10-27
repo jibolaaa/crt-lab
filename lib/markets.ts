@@ -61,12 +61,11 @@ export const DEFAULT_MARKET = "R_75";
 
 export const marketById = (id: string) => MARKETS.find((m) => m.id === id) ?? MARKETS[0];
 
-/** History lengths offered for live Deriv candles, in months. */
+/** History lengths offered for live Deriv candles, in months. They're 5-minute candles, so a year at most. */
 export const HISTORY = [
   { months: 3, label: "3 months" },
-  { months: 12, label: "1 year" },
-  { months: 24, label: "2 years" },
-  { months: 60, label: "Up to 5 years" }
+  { months: 6, label: "6 months" },
+  { months: 12, label: "1 year" }
 ];
 
 const roundNice = (raw: number) => {

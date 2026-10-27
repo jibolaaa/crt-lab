@@ -4,6 +4,8 @@ import type { Config, RunResult } from "../engine";
 export interface DataInfo {
   marketId: string;
   count: number;
+  /** Seconds per candle: 300 or 900. */
+  dt: number;
   from: number;
   to: number;
   lastClose: number;
@@ -16,6 +18,18 @@ export interface DataInfo {
 
 /** Candle columns, oldest first. */
 export interface Columns { t: Float64Array; o: Float64Array; h: Float64Array; l: Float64Array; c: Float64Array }
+
+/** One target cap tried on the current rules. */
+export interface TargetRow {
+  cap: number; // R, 1000 or more for no cap
+  trades: number;
+  winRate: number;
+  avgR: number;
+  totalR: number;
+  seenR: number; // first 70%
+  lateTrades: number;
+  lateR: number; // last 30%
+}
 
 export interface MatterRow {
   key: string;
@@ -43,6 +57,7 @@ export type FromWorker =
   | { type: "loaded"; job: number; info: DataInfo }
   | { type: "result"; job: number; result: RunResult }
   | { type: "matters"; job: number; rows: MatterRow[] }
+  | { type: "targets"; job: number; rows: TargetRow[] }
   | { type: "candles"; job: number; t: number[]; o: number[]; h: number[]; l: number[]; c: number[] }
   | { type: "error"; job: number; message: string };
 

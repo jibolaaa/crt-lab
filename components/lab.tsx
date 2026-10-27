@@ -4,16 +4,19 @@ import { DEFAULT_CONFIG, type Config, type RunResult } from "../engine";
 import { DEFAULT_MARKET, defaultSpread, defaultStopBuffer, marketById, type Spec } from "../lib/markets";
 import { loadDerivCandles, type DerivCandle } from "../lib/deriv";
 import { simulate, type MoneyCfg } from "../lib/money";
-import type { Columns, DataInfo, FromWorker, MatterRow, Request, ToWorker } from "../lib/protocol";
+import type { Columns, DataInfo, FromWorker, MatterRow, Request, TargetRow, ToWorker } from "../lib/protocol";
 import { readHash, writeHash } from "../lib/urlstate";
 import { fmtR } from "../lib/format";
 import { MarketBar, Settings } from "./controls";
 import { Now } from "./now";
-import { Funnel, Grades, Matters, StatsTable, Verdict } from "./results";
+import { Funnel, Grades, Matters, StatsTable, Targets, Verdict } from "./results";
+import { ProjectionCard } from "./projection";
 import { Trades, type Candles } from "./trades";
 import { Method } from "./method";
 
 const DATA_URL = "/data/eurusd-15m.bin";
+/** Live markets load 5-minute candles, so daily CRTs can look for 5-minute breaks of structure. */
+const LIVE_GRANULARITY = 300;
 const MONEY_KEY = "crt-lab:money";
 const specKey = (id: string) => `crt-lab:spec:${id}`;
 const DEFAULT_MONEY: MoneyCfg = { account: 10, mode: "lots", lots: 0.01, riskPct: 1, leverage: 500 };
@@ -44,6 +47,7 @@ export default function Lab() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
   const [matters, setMatters] = useState<MatterRow[] | null>(null);
+  const [targets, setTargets] = useState<TargetRow[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   const worker = useRef<Worker | null>(null);
@@ -73,7 +77,8 @@ export default function Lab() {
     }
     if (m.job === runJob.current) {
       if (m.type === "result") setResult(m.result);
-      else if (m.type === "matters") { setMatters(m.rows); setBusy(false); }
+      else if (m.type === "matters") setMatters(m.rows);
+      else if (m.type === "targets") { setTargets(m.rows); setBusy(false); }
       else if (m.type === "error") setBusy(false);
     }
   }, []);
@@ -115,6 +120,7 @@ export default function Lab() {
     setData(null);
     setResult(null);
     setMatters(null);
+    setTargets(null);
     setLoadError(null);
     setLoading({ text: mk.source === "builtin" ? "Loading 8 years of prices" : "Connecting to Deriv" });
     if (mk.source === "builtin") {
@@ -128,6 +134,7 @@ export default function Lab() {
     const from = Math.floor(start - history * 30.44 * 86400);
     loadDerivCandles(mk.symbol!, {
       from,
+      granularity: LIVE_GRANULARITY,
       onProgress: (count, oldest) => {
         if (loadJob.current !== id) return;
         setLoading({ text: `Loading from Deriv: ${count.toLocaleString("en-GB")} candles so far`, fraction: Math.min(1, Math.max(0, (start - oldest) / (start - from))) });
@@ -136,7 +143,7 @@ export default function Lab() {
       if (loadJob.current !== id) return; // a newer load started
       const now = Date.now() / 1000;
       const columns = (candles: DerivCandle[]): Columns => {
-        const rows = candles.filter((c) => c.epoch + 900 <= now); // the newest candle is usually still forming
+        const rows = candles.filter((c) => c.epoch + LIVE_GRANULARITY <= now); // the newest candle is usually still forming
         const col = (k: "epoch" | "open" | "high" | "low" | "close") => Float64Array.from(rows, (r) => r[k]);
         return { t: col("epoch"), o: col("open"), h: col("high"), l: col("low"), c: col("close") };
       };
@@ -149,6 +156,7 @@ export default function Lab() {
         try {
           const pr = await loadDerivCandles(mk.smt.symbol, {
             from: pFrom,
+            granularity: LIVE_GRANULARITY,
             onProgress: (count, oldest) => {
               if (loadJob.current === id) setLoading({ text: `Loading ${mk.smt!.name} for the SMT check`, fraction: Math.min(1, Math.max(0, (now - oldest) / (now - pFrom))) });
             }
@@ -228,9 +236,11 @@ export default function Lab() {
           data={data} loading={loading} loadError={loadError} onRetry={loadPrices}
         />
 
-        <Now result={result} market={market} cfg={cfg} loading={!!loading} />
+        <Now result={result} market={market} cfg={cfg} loading={!!loading} dt={data?.dt} />
 
         <Verdict result={result} data={data} market={market} failed={!!loadError} money={dollars} moneyCfg={money} />
+
+        <ProjectionCard result={result} spec={spec} money={money} setMoney={setMoney} />
 
         <div className="more-row">
           <button className={`btn quiet${showRules ? " on" : ""}`} aria-expanded={showRules} onClick={() => setShowRules((x) => !x)}>
@@ -249,6 +259,7 @@ export default function Lab() {
         {showMore && (
           <div className="drawer">
             <StatsTable result={result} />
+            <Targets result={result} rows={targets} cfg={cfg} />
             <Grades result={result} />
             <Matters result={result} rows={matters} />
             <Funnel result={result} cfg={cfg} />
@@ -256,7 +267,7 @@ export default function Lab() {
           </div>
         )}
 
-        <Trades result={result} market={market} getCandles={getCandles} money={dollars} moneyCfg={money} />
+        <Trades result={result} market={market} getCandles={getCandles} money={dollars} moneyCfg={money} dt={data?.dt ?? 900} />
 
         <footer className="foot">
           <p>A testing tool, not financial advice. A rule set that made money in the past can still lose from here.</p>

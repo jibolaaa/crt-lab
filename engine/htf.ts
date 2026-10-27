@@ -25,14 +25,25 @@ export function build4h(s: Series): { bars: Bar[]; of: Int32Array } {
 }
 
 /**
- * When each candle closed. The last candle in the data may still be
- * forming, so it never counts as closed: a test that stops part-way through
- * a day must not treat that half day as a finished candle.
+ * When each candle closed, given the length of the candles it was built
+ * from. The last candle in the data may still be forming, so it never counts
+ * as closed: a test that stops part-way through a day must not treat that
+ * half day as a finished candle.
  */
-export function closeTimes(bars: Bar[]) {
+export function closeTimes(bars: Bar[], dt = 900) {
   const out = new Float64Array(bars.length);
-  for (let i = 0; i < bars.length; i++) out[i] = i === bars.length - 1 ? Infinity : bars[i].tEnd + 900;
+  for (let i = 0; i < bars.length; i++) out[i] = i === bars.length - 1 ? Infinity : bars[i].tEnd + dt;
   return out;
+}
+
+/** The length of a series' candles in seconds: the smallest gap between neighbours (900 if it can't tell). */
+export function candleSeconds(s: Series) {
+  let best = Infinity;
+  for (let i = 1; i < Math.min(s.n, 3000); i++) {
+    const d = s.t[i] - s.t[i - 1];
+    if (d > 0 && d < best) best = d;
+  }
+  return Number.isFinite(best) ? best : 900;
 }
 
 export interface Structure {

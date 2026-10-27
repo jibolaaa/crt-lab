@@ -16,7 +16,7 @@ const RANK: Record<LiveSetup["stage"], number> = {
 const rank = (s: LiveSetup) => (s.stage === "entered" && s.trade?.reason !== "end" ? 8.5 : RANK[s.stage]);
 
 /** What today's CRTs look like under the current rules, at the last closed candle. */
-export function Now({ result, market, cfg, loading }: { result: RunResult | null; market: Market; cfg: Config; loading: boolean }) {
+export function Now({ result, market, cfg, loading, dt = 900 }: { result: RunResult | null; market: Market; cfg: Config; loading: boolean; dt?: number }) {
   if (market.source !== "deriv") {
     return (
       <section className="now" aria-labelledby="now-h">
@@ -57,7 +57,7 @@ export function Now({ result, market, cfg, loading }: { result: RunResult | null
             {rows.length === 0 && <p className="now-empty">Not enough prices yet to read this one.</p>}
             <ul className="now-list">
               {rows.map((s, i) => {
-                const { title, text, hot } = describe(s, px, cfg);
+                const { title, text, hot } = describe(s, px, cfg, dt);
                 return (
                   <li key={i} className={`now-item${hot ? " hot" : ""}`}>
                     <span className={`dir ${s.dir === 1 ? "buy" : "sell"}`}>{s.dir === 1 ? "Buy" : "Sell"}</span>
@@ -126,13 +126,15 @@ export function Checklist({ conf }: { conf: Call["conf"] }) {
   );
 }
 
-function describe(s: LiveSetup, px: (x: number) => string, cfg: Config): { title: string; text: string; hot?: boolean } {
+function describe(s: LiveSetup, px: (x: number) => string, cfg: Config, dt: number): { title: string; text: string; hot?: boolean } {
   const long = s.dir === 1;
   const side = long ? "low" : "high";
   const edge = long ? s.rangeLow : s.rangeHigh;
   const past = long ? "below" : "above";
   const swept = px(s.sweepPrice ?? edge);
   const unit = s.tf === "day" ? "day" : "week";
+  const entryChart = s.tf === "week" || dt >= 900 ? "15-minute" : "5-minute";
+  const zoneChart = s.tf === "week" ? "4-hour" : "1-hour";
   const tomorrow = s.tf === "day" ? "tomorrow" : "next week";
   // an earlier sweep names its candles, since candle 1 isn't the current one's
   const from = (title: string) => (s.fromYesterday ? `${title} (${s.tf === "day" ? `${weekday(s.sweepDate)}'s` : `the week of ${dayMonth(s.sweepDate)}'s`} sweep)` : title);
@@ -159,28 +161,29 @@ function describe(s: LiveSetup, px: (x: number) => string, cfg: Config): { title
         text: `Candle 2 closed back inside. Watch for an A-shape and a shift in the killer zone, ${killer}.${pending}`
       };
     case "limit": {
-      const q = s.qm!;
+      const q = s.order!;
+      const what = cfg.entry === "qm" ? "the QM line" : "the order block the BOS left";
       const wait = s.age === 0 && cfg.timing === "nextDay" ? ` It can fill from ${tomorrow}, once this ${unit} closes back inside.` : "";
       return {
         title: from(`${long ? "Buy" : "Sell"} limit set`),
-        text: `${long ? "Buy" : "Sell"} limit at ${px(q.level)}, the QM line. Stop ${px(q.stop)}, target ${px(q.target)} (${q.r.toFixed(1)}R).${wait}`,
+        text: `${long ? "Buy" : "Sell"} limit at ${px(q.level)}, ${what}. Stop ${px(q.stop)}, target ${px(q.target)} (${q.r.toFixed(1)}R).${wait}`,
         hot: true
       };
     }
     case "key":
-      return { title: from("Swept into a key level"), text: `Took candle 1's ${side} (to ${swept})${level}. Waiting for a zone to form.` };
+      return { title: from("Swept into a key level"), text: `Took candle 1's ${side} (to ${swept})${level}. Waiting for a ${zoneChart} zone in the killer zone, ${killer}.` };
     case "zone":
-      return { title: from("Zone ready"), text: s.zone ? `Zone at ${px(s.zone.bottom)} to ${px(s.zone.top)}. Waiting for price to come back into it.` : "Waiting for price to come back into the zone." };
+      return { title: from("Zone ready"), text: s.zone ? `${zoneChart} zone at ${px(s.zone.bottom)} to ${px(s.zone.top)}. Waiting for price to come back into it.` : "Waiting for price to come back into the zone." };
     case "touched":
       return {
-        title: from("Watch for the entry"),
-        text: `Price came back into the zone. ${s.level !== null ? `Entry when a candle closes ${long ? "above" : "below"} ${px(s.level)}.` : "Waiting for a swing to break."}`,
+        title: from("Watch for the BOS"),
+        text: `Price is back in the ${zoneChart} zone. ${s.level !== null ? `The BOS is a ${entryChart} close ${long ? "above" : "below"} ${px(s.level)}${cfg.entry === "retest" ? ", then a limit goes at the order block it leaves" : ""}.` : "Waiting for a swing to break."}`,
         hot: true
       };
     case "entered": {
       const t = s.trade!;
       const running = t.reason === "end";
-      const when = `${weekday(t.entryT - 900)} ${fmtTime(t.entryT)} UTC`;
+      const when = `${weekday(t.entryT - 1)} ${fmtTime(t.entryT)} UTC`;
       const base = `${long ? "Bought" : "Sold"} at ${px(t.entry)} (${when}). Stop ${px(t.stop)}, target ${px(t.tp2)} (${t.plannedR.toFixed(1)}R).`;
       return running
         ? { title: from("In a trade"), text: `${base} Now ${fmtR(t.r, 2)}.`, hot: true }

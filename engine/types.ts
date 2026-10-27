@@ -3,7 +3,7 @@
 
 export type Dir = 1 | -1; // 1 = buy (bullish setup), -1 = sell (bearish setup)
 
-/** 15-minute candles, one array per field, oldest first. */
+/** Candles of one size (5 or 15 minutes), one array per field, oldest first. */
 export interface Series {
   n: number;
   t: ArrayLike<number>; // UTC seconds, start of the candle
@@ -27,7 +27,8 @@ export interface Bar {
 }
 
 export type BiasMode = "off" | "weeklyCrt" | "structure" | "premiumDiscount" | "majority" | "allAgree";
-export type ZoneMode = "obFvg" | "fvg" | "ob" | "off";
+/** "any": an order block or a gap, joined when they overlap. "obFvg": a gap with the order block before it. */
+export type ZoneMode = "any" | "obFvg" | "fvg" | "ob" | "off";
 export type Timing = "sameDay" | "nextDay" | "either";
 export type Session = "asian" | "london" | "newyork";
 export type DayStart = "utc" | "nyClose";
@@ -38,8 +39,12 @@ export type Tf = "h4" | "d1" | "w1";
 export type LevelKind = "old" | "ob" | "fvg" | "rb" | "breaker";
 /** The candle that sets the range: the day before, or the week before. */
 export type CrtTf = "day" | "week";
-/** QM: a limit order at the Quasimodo line after the A-shape and the shift. Shift: a market order on the close that breaks structure. */
-export type EntryModel = "qm" | "shift";
+/**
+ * Shift: in the zone, a market order on the close that breaks structure (the BOS).
+ * Retest: after that BOS, a limit at the order block it left.
+ * QM: a limit at the Quasimodo line after the A-shape and the shift.
+ */
+export type EntryModel = "shift" | "retest" | "qm";
 
 /** The checklist behind the percent, in display order. The first five are about direction and count double. */
 export const CONFLUENCES = [
@@ -61,8 +66,10 @@ export interface Config {
   entry: EntryModel;
   /** The weekly bias as a gate. "off" means it only counts toward the percent. */
   bias: BiasMode;
-  /** The 1-hour zone for the shift entry (4-hour for weekly CRTs). */
+  /** The 1-hour zone for the BOS entries (4-hour for weekly CRTs). */
   zone: ZoneMode;
+  /** The zone has to sit in the killer zone, between candle 1's body and the sweep's tip. */
+  zoneInKiller: boolean;
   /** "nextDay": from candle 3, once candle 2 closed back inside. "sameDay": during candle 2 only. "either": both. */
   timing: Timing;
   /** How many candles after candle 2 an entry can still come (1 = candle 3 only). */
@@ -117,9 +124,10 @@ export interface Config {
 
 export const DEFAULT_CONFIG: Config = {
   crt: ["day", "week"],
-  entry: "qm",
+  entry: "shift",
   bias: "off",
-  zone: "obFvg",
+  zone: "any",
+  zoneInKiller: true,
   timing: "nextDay",
   entryWindow: 3,
   deeperSweeps: true,
@@ -137,8 +145,8 @@ export const DEFAULT_CONFIG: Config = {
   keyLevelKinds: ["old", "ob", "fvg", "rb"],
   minR: 2,
   fullR: 3,
-  lowRPct: 75,
-  maxR: 1000,
+  lowRPct: 0,
+  maxR: 5, // the best cap on the first 70% of EUR/USD 2014 to 2021 with BOS entries (see npm run report)
   maxPerDay: 3,
   dayStart: "utc",
   weekendClosed: true,
@@ -188,9 +196,11 @@ export interface Trade {
   // the entry
   zone: Zone | null;
   touchT: number | null;
-  mssLevel: number; // the swing (shift entry) or low/high (QM) that a close broke
+  mssLevel: number; // the swing (BOS entries) or low/high (QM) that a close broke
   mssT: number;
   qm: QmInfo | null;
+  /** Retest entry: the order block the BOS left, where the limit sat. */
+  retest: { level: number; top: number; bottom: number; obT: number; bosT: number } | null;
   entryT: number; // close time of the candle the entry happened in
   entry: number; // fill price (ask for buys, bid for sells)
   stop: number;
@@ -234,7 +244,7 @@ export interface Funnel {
   sweeps: number; // candle 2 took candle 1's high or low in an allowed direction
   biasBlocked: number; // sweeps skipped because they went against the weekly bias
   keyLevels: number; // sweeps that reached a higher-timeframe key level
-  closedInside: number; // candle 2 closed back inside candle 1's range
+  closedInside: number; // candle 2 closed back inside candle 1's range (and the key level was found)
   zones: number; // shift entry: a zone formed. QM entry: an A-shape and shift set a limit
   touches: number; // shift entry: price came back into the zone. QM entry: the limit was reached
   entries: number; // trades taken
@@ -253,7 +263,7 @@ export type LiveStage =
   | "noKey" // it took it, but not into a fresh key level
   | "swept" // QM: swept into a key level, candle 2 still forming
   | "armed" // QM: waiting for price in the killer zone to make an A-shape and shift
-  | "limit" // QM: the limit is set at the QM line
+  | "limit" // QM or retest: a limit is waiting
   | "key" // shift: swept into a key level; waiting for a zone
   | "zone" // shift: zone ready; waiting for price to come back into it
   | "touched" // shift: in the zone; waiting for a close beyond `level`
@@ -283,7 +293,8 @@ export interface LiveSetup {
   level: number | null; // shift: the close that would enter
   /** QM, waiting: the latest A-shape top, the close that would set the limit, and the QM line. */
   pending: { head: number; sms: number; qm: number } | null;
-  qm: { level: number; stop: number; target: number; r: number } | null;
+  /** A waiting limit order (QM or retest) with its stop and target. */
+  order: { level: number; stop: number; target: number; r: number } | null;
   call: Call | null;
   skipR: number | null;
   trade: Trade | null;

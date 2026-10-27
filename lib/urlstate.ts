@@ -6,14 +6,14 @@ export interface Saved { marketId?: string; months?: number; cfg: Partial<Config
 
 const ONE_OF = {
   bias: ["off", "weeklyCrt", "structure", "premiumDiscount", "majority", "allAgree"],
-  entry: ["qm", "shift"],
-  zone: ["obFvg", "fvg", "ob", "off"],
+  entry: ["shift", "retest", "qm"],
+  zone: ["any", "obFvg", "fvg", "ob", "off"],
   timing: ["sameDay", "nextDay", "either"],
   stop: ["sweep", "pullback", "ob"],
   dayStart: ["utc", "nyClose"],
   freshFrom: ["candle1", "candle2"]
 } as const;
-const FLAGS = { half: "partialAtTp1", day3: "timeStop", news: "newsGuard", key: "requireKeyLevel", deep: "deeperSweeps", mid: "midCancels" } as const;
+const FLAGS = { half: "partialAtTp1", day3: "timeStop", news: "newsGuard", key: "requireKeyLevel", deep: "deeperSweeps", mid: "midCancels", kz: "zoneInKiller" } as const;
 const NUMBERS = { swing: "swing15", minr: "minR", fullr: "fullR", lowpct: "lowRPct", maxr: "maxR", perday: "maxPerDay", window: "entryWindow" } as const;
 const LISTS = {
   crt: { key: "crt", allowed: ["day", "week"] as CrtTf[] },
@@ -50,7 +50,7 @@ export function readHash(hash: string): Saved {
   const months = Number(q.get("h"));
   return {
     marketId: q.get("m") ?? undefined,
-    months: [3, 12, 24, 60].includes(months) ? months : undefined,
+    months: [3, 6, 12].includes(months) ? months : undefined,
     cfg: cfg as Partial<Config>
   };
 }

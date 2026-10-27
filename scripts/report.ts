@@ -15,17 +15,19 @@ const CLASSIC: Partial<Config> = {
 };
 const rows: [string, Partial<Config>][] = [
   ["Today's rules", {}],
+  ["  retest entry", { entry: "retest" }],
+  ["  QM entry", { entry: "qm" }],
+  ["  zone anywhere after the sweep", { zoneInKiller: false }],
+  ["  no target cap", { maxR: 1000 }],
   ["  daily CRTs only", { crt: ["day"] }],
   ["  weekly CRTs only", { crt: ["week"] }],
-  ["  shift entry instead of QM", { entry: "shift" }],
   ["  no key level needed", { requireKeyLevel: false }],
   ["  key levels: OB and FVG only", { keyLevelKinds: ["ob", "fvg"] }],
   ["  key level fresh before candle 2", { freshFrom: "candle2" }],
   ["  a deeper sweep cancels", { deeperSweeps: false }],
   ["  entries from candle 2", { timing: "either" }],
-  ["  2R to 3R at any percent", { lowRPct: 0 }],
+  ["  2R to 3R needs 75%", { lowRPct: 75 }],
   ["  no minimum R", { minR: 0, fullR: 0 }],
-  ["  target capped at 6R", { maxR: 6 }],
   ["  stop beyond the sweep", { stop: "sweep" }],
   ["  weekly structure as a gate", { bias: "structure" }],
   ["  no day-after close", { timeStop: false }],
@@ -53,7 +55,19 @@ const summarize = (ts: Trade[]) => {
   const n = ts.length, tot = ts.reduce((a, t) => a + t.r, 0);
   return `${String(n).padStart(4)} trades, win ${n ? ((ts.filter((t) => t.r > 0.005).length / n) * 100).toFixed(0) : "-"}%, avg ${n ? (tot / n).toFixed(2) : "-"}R, total ${tot.toFixed(1)}R`;
 };
-for (const [name, over] of [["Today's rules", {}], ["Today's rules, 2R to 3R at any percent", { lowRPct: 0 }], ["No key level, no R limits (every setup)", { requireKeyLevel: false, minR: 0, fullR: 0 }]] as [string, Partial<Config>][]) {
+// the target cap for each entry, chosen on the first 70% and checked on the last 30%
+for (const entry of ["shift", "retest", "qm"] as Config["entry"][]) {
+  console.log(`\nTarget caps, ${entry} entry: cap  trades  win%  avgR  total | first 70% | last 30%`);
+  let best = { cap: 0, seen: -Infinity, late: 0 };
+  for (const cap of [2, 3, 4, 5, 6, 8, 10, 1000]) {
+    const r = runBacktest(p, { ...DEFAULT_CONFIG, entry, maxR: cap });
+    if (r.seen.totalR > best.seen) best = { cap, seen: r.seen.totalR, late: r.unseen.totalR };
+    console.log(`  ${(cap >= 1000 ? "none" : cap + "R").padEnd(5)} ${String(r.all.trades).padStart(6)} ${(r.all.winRate * 100).toFixed(0).padStart(4)}% ${f(r.all.avgR).padStart(5)} ${f(r.all.totalR, 1).padStart(6)} | ${f(r.seen.totalR, 1).padStart(6)} | ${f(r.unseen.totalR, 1).padStart(6)}`);
+  }
+  console.log(`  best on the first 70%: ${best.cap >= 1000 ? "none" : best.cap + "R"}, then ${f(best.late, 1)}R on the last 30%`);
+}
+
+for (const [name, over] of [["Today's rules", {}], ["No key level, no R limits (every setup)", { requireKeyLevel: false, minR: 0, fullR: 0 }]] as [string, Partial<Config>][]) {
   const r = runBacktest(p, { ...DEFAULT_CONFIG, ...over });
   console.log(`\n${name}: funnel`, JSON.stringify(r.funnel));
   console.log("  by CRT:");

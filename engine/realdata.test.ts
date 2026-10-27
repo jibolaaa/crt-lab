@@ -29,16 +29,17 @@ function lastBefore(s: Series, t: number) {
 // The first version's rules, spelled out
 const CLASSIC: Partial<Config> = {
   crt: ["day"], entry: "shift", timing: "either", entryWindow: 1, deeperSweeps: false, midCancels: true, freshFrom: "candle2",
-  keyLevelKinds: ["ob", "breaker", "fvg"], bias: "majority",
+  keyLevelKinds: ["ob", "breaker", "fvg"], zone: "obFvg", zoneInKiller: false, bias: "majority",
   requireKeyLevel: false, stop: "sweep", stopBuffer: 0, partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0
 };
 
 const CONFIGS: [string, Partial<Config>][] = [
   ["today's rules", {}],
-  ["today's rules, shift entry", { entry: "shift" }],
+  ["retest entry", { entry: "retest" }],
+  ["QM entry", { entry: "qm" }],
   ["daily CRTs only", { crt: ["day"] }],
   ["weekly CRTs only", { crt: ["week"] }],
-  ["1 trade a day, 2R to 3R at any percent", { maxPerDay: 1, lowRPct: 0 }],
+  ["1 trade a day, 2R to 3R needs 75%", { maxPerDay: 1, lowRPct: 75 }],
   ["no key level, candle 2 or 3", { requireKeyLevel: false, timing: "either" }],
   ["6R cap, stop beyond the sweep, weekly structure as a gate", { maxR: 6, stop: "sweep", bias: "structure" }],
   ["first version's rules", CLASSIC],
@@ -48,7 +49,7 @@ const CONFIGS: [string, Partial<Config>][] = [
 
 const entryFields = (x: Trade) => ({
   dir: x.dir, tf: x.tf, model: x.model, entryT: x.entryT, entry: x.entry, stop: x.stop, tp1: x.tp1, tp2: x.tp2, partial: x.partial,
-  sweepT: x.sweepT, sweepPrice: x.sweepPrice, mssLevel: x.mssLevel, mssT: x.mssT, qm: x.qm, plannedR: x.plannedR,
+  sweepT: x.sweepT, sweepPrice: x.sweepPrice, mssLevel: x.mssLevel, mssT: x.mssT, qm: x.qm, retest: x.retest, plannedR: x.plannedR,
   touchT: x.touchT, zone: x.zone, bias: x.bias, sameDay: x.sameDay, entryCandle: x.entryCandle,
   keyLevel: x.keyLevel, conf: x.conf, points: x.points, maxPoints: x.maxPoints, pct: x.pct
 });
@@ -94,10 +95,16 @@ describe.each(CONFIGS)("real EURUSD, %s", (_name, over) => {
       if (tr.reason === "stop") expect(tr.r).toBeLessThanOrEqual(-0.999);
       if (tr.reason === "tp2" || tr.reason === "breakeven") expect(tr.r).toBeGreaterThan(0);
       const i = lastBefore(full, tr.entryT);
+      if (cfg.zoneInKiller && tr.zone) expect(d * (tr.bodyEdge - (d === 1 ? tr.zone.top : tr.zone.bottom))).toBeGreaterThanOrEqual(-1e-9);
       if (tr.model === "shift") {
         // the entry is the close of the candle that broke structure (plus spread on buys)
         expect(tr.entry).toBeCloseTo(full.c[i] + (d === 1 ? cfg.spread : 0), 7);
         expect(d * (full.c[i] - tr.mssLevel)).toBeGreaterThan(0);
+      } else if (tr.model === "retest") {
+        // a limit at the order block the BOS left, or better if price jumped past it
+        expect(tr.retest).not.toBeNull();
+        expect(d * (tr.retest!.level - tr.entry)).toBeGreaterThanOrEqual(-1e-9);
+        expect(tr.retest!.bosT).toBeLessThan(tr.entryT);
       } else {
         // a limit at the QM line, or better if price jumped past it
         expect(tr.qm).not.toBeNull();
@@ -138,6 +145,7 @@ describe.each(CONFIGS)("real EURUSD, %s", (_name, over) => {
     }
     if (cfg.entry === "qm" || cfg.zone !== "off") {
       expect(f.touches).toBeLessThanOrEqual(f.zones);
+      if (cfg.timing === "nextDay") expect(f.zones).toBeLessThanOrEqual(f.closedInside);
       const after = f.entries + f.skippedNews + f.skippedSession + f.skippedPastMid + f.skippedLowR + f.skippedDailyCap + f.skippedOverlap;
       expect(after).toBeLessThanOrEqual(f.touches);
     }

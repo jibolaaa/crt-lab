@@ -69,9 +69,9 @@ function breakTime(bars: Bar[], ct: Float64Array, z: Raw) {
   return Infinity;
 }
 
-export function findLevels(bars: Bar[], tf: Tf, k = 2, lookback = 10): Level[] {
+export function findLevels(bars: Bar[], tf: Tf, k = 2, lookback = 10, dt = 900): Level[] {
   const raw: Raw[] = [];
-  const ct = closeTimes(bars);
+  const ct = closeTimes(bars, dt);
   let hi: { j: number; p: number } | null = null, lo: { j: number; p: number } | null = null;
   let usedHi = -1, usedLo = -1;
   for (let i = 0; i < bars.length; i++) {

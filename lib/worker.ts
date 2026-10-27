@@ -1,8 +1,12 @@
 /// <reference lib="webworker" />
 // Runs the engine off the main thread so the page stays smooth on a phone.
 import { prepare, runBacktest, seriesFromBuffer, type Config, type Prepared, type Series } from "../engine";
+import { candleSeconds } from "../engine/htf";
 import { variantsFor } from "./matters";
-import type { FromWorker, MatterRow, ToWorker } from "./protocol";
+import type { FromWorker, MatterRow, TargetRow, ToWorker } from "./protocol";
+
+/** The target caps tried in the "Which target?" table. */
+export const CAPS = [2, 3, 4, 5, 6, 8, 10, 1000];
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 const post = (msg: FromWorker) => ctx.postMessage(msg);
@@ -64,7 +68,7 @@ ctx.onmessage = async (e: MessageEvent<ToWorker>) => {
       if (!series.n) throw new Error("No prices came back for this market.");
       post({
         type: "loaded", job: msg.job,
-        info: { marketId: msg.marketId, count: series.n, from: series.t[0], to: series.t[series.n - 1] + 900, lastClose: series.c[series.n - 1], pipSize, shortBy, smt }
+        info: { marketId: msg.marketId, count: series.n, dt: candleSeconds(series), from: series.t[0], to: series.t[series.n - 1] + candleSeconds(series), lastClose: series.c[series.n - 1], pipSize, shortBy, smt }
       });
     } else if (msg.type === "run") {
       latestRun = msg.job;
@@ -82,6 +86,18 @@ ctx.onmessage = async (e: MessageEvent<ToWorker>) => {
         rows.push({ key: v.key, label: v.label, trades: r.all.trades, totalR: r.all.totalR, avgR: r.all.avgR, lateTrades: r.unseen.trades, lateR: r.unseen.totalR });
       }
       post({ type: "matters", job: msg.job, rows });
+      const targets: TargetRow[] = [];
+      for (const cap of CAPS) {
+        await nextTick();
+        if (latestRun !== msg.job) return;
+        const cfg = { ...msg.cfg, maxR: cap };
+        const r = runBacktest(getPrepared(cfg), cfg);
+        targets.push({
+          cap, trades: r.all.trades, winRate: r.all.winRate, avgR: r.all.avgR, totalR: r.all.totalR,
+          seenR: r.seen.totalR, lateTrades: r.unseen.trades, lateR: r.unseen.totalR
+        });
+      }
+      post({ type: "targets", job: msg.job, rows: targets });
     } else if (msg.type === "candles") {
       if (!series) throw new Error("Load a market first.");
       const s = series;

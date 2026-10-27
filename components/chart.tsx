@@ -102,7 +102,7 @@ export function TradeChart({ trade, candles, digits }: { trade: Trade; candles: 
       line(trade.stop, down, "Stop", true);
       line(trade.tp2, up, "Target");
 
-      const iEntry = at(T, trade.entryT - 900);
+      const iEntry = at(T, trade.entryT - 1);
       const shapes: Shape[] = [];
       if (trade.keyLevel) {
         // the higher-timeframe level the sweep reached, from the start of the chart to the entry
@@ -119,6 +119,8 @@ export function TradeChart({ trade, candles, digits }: { trade: Trade; candles: 
         shapes.push({ kind: "level", i1: at(T, q.headT), i2: at(T, q.smsT - 1), p1: q.smsLevel, p2: q.smsLevel, stroke: paper, dash: [4, 3] });
       } else {
         shapes.push({ kind: "level", i1: at(T, trade.mssT), i2: iEntry, p1: trade.mssLevel, p2: trade.mssLevel, stroke: paper, dash: [4, 3] });
+        // retest: the order block the BOS left, where the limit sat
+        if (trade.retest) shapes.push({ kind: "box", i1: at(T, trade.retest.obT), i2: iEntry, p1: trade.retest.top, p2: trade.retest.bottom, fill: "rgba(236,230,214,0.10)", stroke: "rgba(236,230,214,0.5)" });
       }
       series.attachPrimitive(new Shapes(shapes));
 
@@ -128,7 +130,7 @@ export function TradeChart({ trade, candles, digits }: { trade: Trade; candles: 
       ];
       if (q) markers.push({ time: T[at(T, q.headT)] as UTCTimestamp, position: long ? "belowBar" : "aboveBar", shape: "circle", color: gold, text: "A" });
       if (trade.partialT) markers.push({ time: T[at(T, trade.partialT)] as UTCTimestamp, position: long ? "aboveBar" : "belowBar", shape: "circle", color: gold, text: "Half" });
-      const iExit = at(T, trade.exitT - (trade.reason === "time" || trade.reason === "end" ? 900 : 0));
+      const iExit = at(T, trade.exitT - (trade.reason === "time" || trade.reason === "end" ? 1 : 0));
       markers.push({ time: T[iExit] as UTCTimestamp, position: long ? "aboveBar" : "belowBar", shape: "square", color: trade.r > 0.005 ? up : trade.r < -0.005 ? down : fog, text: "Out" });
       markers.sort((a, b) => (a.time as number) - (b.time as number));
       lc.createSeriesMarkers(series, markers);

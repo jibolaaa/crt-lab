@@ -14,14 +14,15 @@
 //       the shoulder: the QM line.
 //     - Shift: price comes back into a 1-hour zone, then a close below the
 //       last swing low.
-//     Daily CRTs use 15-minute candles for this and 1-hour zones; weekly CRTs
-//     use 1-hour candles and 4-hour zones.
+//     Daily CRTs use 1-hour zones and the base candles (5-minute when loaded,
+//     else 15-minute) for the break; weekly CRTs use 4-hour zones and
+//     15-minute candles.
 //  4. The stop goes beyond the order block on the zone chart. The target is
 //     candle 1's low. Under `minR` the trade is skipped, and under `fullR` it
 //     needs at least `lowRPct` of the checklist.
 import { biasArray, buildCalendar, weeklyBias, type Calendar, type WeeklyBias } from "./bars";
 import { dayKey, inSessions, nfpTimes, usDst } from "./calendar";
-import { build4h, structure, type Structure } from "./htf";
+import { build4h, candleSeconds, structure, type Structure } from "./htf";
 import { findLevels, keyLevelFor, levelBook, markTouches, type Level, type LevelBook } from "./levels";
 import { stats } from "./stats";
 import {
@@ -44,12 +45,17 @@ export interface Candles {
   c: ArrayLike<number>;
   dt: number; // seconds per candle
   day: Int32Array; // day index of each candle
-  i15: Int32Array; // index of each candle's first 15-minute candle
+  ib: Int32Array; // index of each candle's first base candle
 }
 
 /** A possible A-shape top (bottom for buys) waiting for its shift. */
 interface Head { t: number; i: number; price: number; shoulder: number; shoulderT: number; level: number; scan: number }
 interface Qm extends QmInfo { headI: number; smsI: number; displaced: boolean; ob: { top: number; bottom: number; t: number } | null }
+/** Retest entry: the limit at the order block a BOS left, and what the BOS knew. */
+interface Retest {
+  level: number; top: number; bottom: number; obT: number; bosT: number; bosI: number;
+  swing: number; swingT: number; turn: number; turnI: number; displacement: boolean; anchor: number; touchT: number | null;
+}
 
 interface Setup {
   dir: Dir;
@@ -68,6 +74,7 @@ interface Setup {
   keyLevel: Level | null;
   keyChecked: boolean;
   keyCounted: boolean;
+  closedIn: boolean; // candle 2 closed back inside candle 1
   insideCounted: boolean;
   // shift entry
   zone: Zone | null;
@@ -81,7 +88,8 @@ interface Setup {
   // QM entry
   heads: Head[];
   qm: Qm | null;
-  qmCounted: boolean;
+  // retest entry
+  rt: Retest | null;
   fillCounted: boolean;
   done: boolean;
   why: string | null; // why it ended
@@ -95,27 +103,29 @@ interface Partner { s: Series; day: Map<number, { h: number; l: number }>; week:
 
 export interface Prepared {
   s: Series;
+  /** Seconds per base candle: 300 for 5-minute, 900 for 15-minute. */
+  dt: number;
   cal: Calendar;
   bias: WeeklyBias;
   nfpDays: Set<number>; // day keys that hold a US jobs report
-  h4Of: Int32Array; // 15-minute candle index -> 4-hour candle index
+  h4Of: Int32Array; // base candle index -> 4-hour candle index
   structH4: Structure;
   structD: Structure;
   structW: Structure;
   levels: LevelBook;
-  m15: Candles;
-  h1: Candles;
+  base: Candles; // entries for daily CRTs
+  m15: Candles; // entries for weekly CRTs
   /** A related market for the SMT check, if one was loaded. */
   partner: Partner | null;
 }
 
-/** 1-hour candles from 15-minute ones. The last hour only counts once its last quarter is in. */
-function hourly(s: Series, cal: Calendar): Candles {
-  const t: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], day: number[] = [], i15: number[] = [];
+/** Bigger candles (`step` seconds) from the base ones. The last one only counts once its final base candle is in. */
+function aggregate(s: Series, cal: Calendar, step: number, baseDt: number): Candles {
+  const t: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], day: number[] = [], ib: number[] = [];
   for (let i = 0; i < s.n; i++) {
-    const ht = s.t[i] - (s.t[i] % 3600), k = t.length - 1;
-    if (k < 0 || t[k] !== ht || day[k] !== cal.dayOf[i]) {
-      t.push(ht); o.push(s.o[i]); h.push(s.h[i]); l.push(s.l[i]); c.push(s.c[i]); day.push(cal.dayOf[i]); i15.push(i);
+    const bt = s.t[i] - (s.t[i] % step), k = t.length - 1;
+    if (k < 0 || t[k] !== bt || day[k] !== cal.dayOf[i]) {
+      t.push(bt); o.push(s.o[i]); h.push(s.h[i]); l.push(s.l[i]); c.push(s.c[i]); day.push(cal.dayOf[i]); ib.push(i);
     } else {
       if (s.h[i] > h[k]) h[k] = s.h[i];
       if (s.l[i] < l[k]) l[k] = s.l[i];
@@ -123,9 +133,9 @@ function hourly(s: Series, cal: Calendar): Candles {
     }
   }
   let n = t.length;
-  if (n && s.t[s.n - 1] % 3600 !== 2700) n--;
+  if (n && s.t[s.n - 1] % step !== step - baseDt) n--;
   const f = (a: number[]) => Float64Array.from(a.slice(0, n));
-  return { n, t: f(t), o: f(o), h: f(h), l: f(l), c: f(c), dt: 3600, day: Int32Array.from(day.slice(0, n)), i15: Int32Array.from(i15.slice(0, n)) };
+  return { n, t: f(t), o: f(o), h: f(h), l: f(l), c: f(c), dt: step, day: Int32Array.from(day.slice(0, n)), ib: Int32Array.from(ib.slice(0, n)) };
 }
 
 /** The slow, rule-independent work, so several runs can share it. */
@@ -135,22 +145,23 @@ export function prepare(s: Series, cfg: Pick<Config, "dayStart" | "weekendClosed
   const nfpDays = new Set<number>();
   // the news calendar is known in advance, so include a release later on the last day
   if (s.n) for (const t of nfpTimes(s.t[0], s.t[s.n - 1] + 86400)) nfpDays.add(dayKey(t, cfg.dayStart, cfg.weekendClosed));
+  const dt = candleSeconds(s);
   const h4 = build4h(s);
-  const byTf = { h4: findLevels(h4.bars, "h4"), d1: findLevels(cal.days, "d1"), w1: findLevels(cal.weeks, "w1") };
+  const byTf = { h4: findLevels(h4.bars, "h4", 2, 10, dt), d1: findLevels(cal.days, "d1", 2, 10, dt), w1: findLevels(cal.weeks, "w1", 2, 10, dt) };
   for (const list of Object.values(byTf)) markTouches(list, cal.days);
-  const i15 = new Int32Array(s.n);
-  for (let i = 0; i < s.n; i++) i15[i] = i;
+  const ib = new Int32Array(s.n);
+  for (let i = 0; i < s.n; i++) ib[i] = i;
+  const base: Candles = { n: s.n, t: s.t, o: s.o, h: s.h, l: s.l, c: s.c, dt, day: cal.dayOf, ib };
   let pp: Partner | null = null;
   if (partner && partner.n) {
     const pc = buildCalendar(partner, cfg);
     pp = { s: partner, day: new Map(pc.days.map((d) => [d.key, { h: d.h, l: d.l }])), week: new Map(pc.weeks.map((w) => [w.key, { h: w.h, l: w.l }])) };
   }
   return {
-    s, cal, bias, nfpDays, h4Of: h4.of,
+    s, dt, cal, bias, nfpDays, h4Of: h4.of,
     structH4: structure(h4.bars, 2), structD: structure(cal.days, 2), structW: structure(cal.weeks, 2),
     levels: levelBook(byTf),
-    m15: { n: s.n, t: s.t, o: s.o, h: s.h, l: s.l, c: s.c, dt: 900, day: cal.dayOf, i15 },
-    h1: hourly(s, cal),
+    base, m15: dt >= 900 ? base : aggregate(s, cal, 900, dt),
     partner: pp
   };
 }
@@ -194,7 +205,7 @@ function smtCheck(p: Prepared, tf: CrtTf, key1: number, from: number, to: number
   let lo = 0, hi = P.s.n;
   while (lo < hi) { const m = (lo + hi) >> 1; if (t[m] < from) lo = m + 1; else hi = m; }
   let seen = false, ext = dir === 1 ? Infinity : -Infinity;
-  for (let x = lo; x < P.s.n && t[x] + 900 <= to; x++) {
+  for (let x = lo; x < P.s.n && t[x] + p.dt <= to; x++) {
     seen = true;
     ext = dir === 1 ? Math.min(ext, P.s.l[x]) : Math.max(ext, P.s.h[x]);
   }
@@ -224,14 +235,14 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
     const di = p.cal.dayOf[s.n - 1], wi = p.cal.weekOfDay[di];
     if (di > 0) {
       live = {
-        asOf: s.t[s.n - 1] + 900, dayStart: p.cal.days[di].t, date: p.cal.days[di].key * 86400, weekDate: weekDate(p.cal.weeks[wi].key),
+        asOf: s.t[s.n - 1] + p.dt, dayStart: p.cal.days[di].t, date: p.cal.days[di].key * 86400, weekDate: weekDate(p.cal.weeks[wi].key),
         bias: p.bias.structure[wi], biasGate: cfg.bias === "off" ? null : cfg.bias,
         setups: passes.flatMap((x) => x.live)
       };
     }
   }
 
-  const from = s.n ? s.t[0] : 0, to = s.n ? s.t[s.n - 1] + 900 : 0;
+  const from = s.n ? s.t[0] : 0, to = s.n ? s.t[s.n - 1] + p.dt : 0;
   const splitT = from + Math.round((to - from) * 0.7);
   return {
     trades, funnel, live, splitT, from, to, smt: !!p.partner,
@@ -244,7 +255,7 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
 function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, number>) {
   const { cal, nfpDays } = p;
   const weekly = tf === "week";
-  const E = weekly ? p.h1 : p.m15;
+  const E = weekly ? p.m15 : p.base;
   const dt = E.dt;
   const zoneDt = weekly ? 4 * 3600 : 3600;
   const periods: Bar[] = weekly ? cal.weeks : cal.days;
@@ -334,7 +345,7 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
       const last = cal.weeks[wi - 1];
       if (!weeklyCrt && last) {
         // this week so far has taken last week's low (high) and is back inside
-        const end = Math.min(E.i15[i] + dt / 900 - 1, p.s.n - 1);
+        const end = Math.min(E.ib[i] + dt / p.dt - 1, p.s.n - 1);
         let ext = long ? Infinity : -Infinity;
         for (let x = cal.weeks[wi].i0; x <= end; x++) ext = long ? Math.min(ext, p.s.l[x]) : Math.max(ext, p.s.h[x]);
         weeklyCrt = long ? ext < last.l && entry > last.l : ext > last.h && entry < last.h;
@@ -342,7 +353,7 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
     }
     let mtf: boolean, discount: boolean;
     if (!weekly) {
-      const h4i = p.h4Of[E.i15[i]] - 1, dPrev = di - 1;
+      const h4i = p.h4Of[E.ib[i]] - 1, dPrev = di - 1;
       mtf = h4i >= 0 && dPrev >= 0 && p.structH4.trend[h4i] === st.dir && p.structD.trend[dPrev] === st.dir;
       discount = inDiscount(p.structD, dPrev, entry, long);
     } else {
@@ -358,7 +369,7 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
     // IFVG: on the way in, a close went through a gap left by the move against the trade
     let ifvg = false;
     let x0 = turnI;
-    while (x0 > 2 && E.t[x0 - 1] >= E.t[turnI] - 48 * dt) x0--; // gaps from up to 48 candles before the turn
+    while (x0 > 2 && E.t[x0 - 1] >= E.t[turnI] - (weekly ? 48 : 12) * 3600) x0--; // gaps from up to 12 hours (48 for weekly CRTs) before the turn
     for (let x = Math.max(2, x0); x <= i && !ifvg; x++) {
       const gap = long ? E.h[x] < E.l[x - 2] : E.l[x] > E.h[x - 2];
       if (!gap) continue;
@@ -408,7 +419,7 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
   // Try to take a trade: the filters, the stop, the checklist and the R rules.
   const enter = (
     st: Setup, i: number, entry: number, broke: { level: number; t: number },
-    o: { qm: Qm | null; fib: boolean; displacement: boolean; turnI: number; anchor: number; touchT: number | null }
+    o: { qm: Qm | null; retest?: Trade["retest"]; fib: boolean; displacement: boolean; turnI: number; anchor: number; touchT: number | null }
   ): Open | null => {
     const long = st.dir === 1, t = E.t[i], now = t + dt, pi = periodOf(i);
     st.done = true;
@@ -440,13 +451,14 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
     const partial = cfg.partialAtTp1 && (long ? st.mid > entry && st.mid < target : st.mid < entry && st.mid > target);
     const q = o.qm;
     const trade: Trade = {
-      id: trades.length + 1, dir: st.dir, tf, model: q ? "qm" : "shift",
+      id: trades.length + 1, dir: st.dir, tf, model: q ? "qm" : o.retest ? "retest" : "shift",
       rangeDayT: periods[st.p1].t, sweepDayT: periods[st.p2].t,
       rangeHigh: st.rangeHigh, rangeLow: st.rangeLow, mid: st.mid, bodyEdge: st.bodyEdge,
       sweepT: st.sweepT, sweepPrice: st.sweepPrice, bias: st.bias,
       zone: st.zone, touchT: o.touchT,
       mssLevel: broke.level, mssT: broke.t,
       qm: q ? { level: q.level, shoulderT: q.shoulderT, head: q.head, headT: q.headT, smsLevel: q.smsLevel, smsT: q.smsT } : null,
+      retest: o.retest ?? null,
       entryT: now, entry, stop, tp1: st.mid, tp2: target, partial, risk, plannedR,
       sameDay: pi === st.p2, entryCandle: pi - st.p2 + 2,
       keyLevel: key ? { tf: key.tf, kind: key.kind, top: key.top, bottom: key.bottom, t: key.t } : null,
@@ -477,30 +489,34 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
       why: st.why, rangeHigh: st.rangeHigh, rangeLow: st.rangeLow, mid: st.mid, bodyEdge: st.bodyEdge,
       sweepPrice: st.swept ? st.sweepPrice : null,
       keyLevel: st.keyLevel ? { tf: st.keyLevel.tf, kind: st.keyLevel.kind, top: st.keyLevel.top, bottom: st.keyLevel.bottom, t: st.keyLevel.t } : null,
-      zone: st.zone, level: null, qm: null, pending: null, call: null, skipR: st.skipR, trade: st.trade
+      zone: st.zone, level: null, order: null, pending: null, call: null, skipR: st.skipR, trade: st.trade
+    };
+    const target = long ? st.rangeHigh : st.rangeLow;
+    const orderAt = (entry: number, anchor: number) => {
+      const stop = long ? anchor - cfg.stopBuffer : anchor + sp + cfg.stopBuffer;
+      const risk = long ? entry - stop : stop - entry;
+      return { level: entry, stop, target, r: risk > 0 ? (long ? target - entry : entry - target) / risk : 0 };
     };
     if (st.done) return { ...lv, stage: st.trade ? "entered" : "ended", call: st.trade ? { pct: st.trade.pct, points: st.trade.points, maxPoints: st.trade.maxPoints, conf: st.trade.conf } : null };
     if (!st.swept) return lv;
     if (needsKey(st)) return { ...lv, stage: "noKey" };
     if (cfg.entry === "qm") {
       const q = st.qm;
-      if (q) {
-        const anchor = qmAnchor(st, q);
-        const stop = long ? anchor - cfg.stopBuffer : anchor + sp + cfg.stopBuffer;
-        const entry = q.level; // a buy limit fills when the ask reaches the line, a sell limit when the bid does
-        const target = long ? st.rangeHigh : st.rangeLow;
-        const risk = long ? entry - stop : stop - entry;
-        return {
-          ...lv, stage: "limit",
-          qm: { level: q.level, stop, target, r: risk > 0 ? (long ? target - entry : entry - target) / risk : 0 },
-          call: callFor(st, lastI, entry, q)
-        };
-      }
+      // a buy limit fills when the ask reaches the line, a sell limit when the bid does
+      if (q) return { ...lv, stage: "limit", order: orderAt(q.level, qmAnchor(st, q)), call: callFor(st, lastI, q.level, q) };
       const h = st.heads[st.heads.length - 1];
       return {
         ...lv, stage: st.p2 === curP && cfg.timing === "nextDay" ? "swept" : "armed",
         pending: h ? { head: h.price, sms: h.level, qm: h.shoulder } : null
       };
+    }
+    const r = st.rt;
+    if (r) {
+      let far = long ? -Infinity : Infinity;
+      for (let x = r.turnI + 1; x <= lastI; x++) far = long ? Math.max(far, E.h[x]) : Math.min(far, E.l[x]);
+      const leg = long ? far - r.turn : r.turn - far, back = long ? far - r.level : r.level - far;
+      const conf = checklist(st, lastI, r.level, st.keyLevel, leg > 0 && back / leg >= 0.5 && back / leg <= 0.786, r.displacement, r.turnI);
+      return { ...lv, stage: "limit", order: orderAt(r.level, r.anchor), call: { ...scoreOf(conf), conf } };
     }
     if (cfg.zone !== "off" && !st.zone) return { ...lv, stage: "key" };
     if (!st.touched) return { ...lv, stage: "zone" };
@@ -521,7 +537,7 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
           tf, dir, fromYesterday: false, age: 0, stage: "blocked", rangeDate: periodDate(prev), sweepDate: periodDate(cur),
           why: null, rangeHigh: prev.h, rangeLow: prev.l, mid: (prev.h + prev.l) / 2,
           bodyEdge: dir === 1 ? Math.min(prev.o, prev.c) : Math.max(prev.o, prev.c),
-          sweepPrice: null, keyLevel: null, zone: null, level: null, qm: null, pending: null, call: null, skipR: null, trade: null
+          sweepPrice: null, keyLevel: null, zone: null, level: null, order: null, pending: null, call: null, skipR: null, trade: null
         });
       }
     }
@@ -535,6 +551,20 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
     }
     return out;
   }
+
+  // the funnel: each step only counts setups that passed the one before
+  const pastC2 = (st: Setup) => cfg.timing !== "nextDay" || st.insideCounted;
+  const countZone = (st: Setup) => {
+    if (st.zoneCounted || !pastC2(st) || !(cfg.entry === "qm" ? st.qm : st.zone)) return;
+    st.zoneCounted = true;
+    funnel.zones++;
+  };
+  const countInside = (st: Setup) => {
+    if (st.insideCounted || !st.closedIn || needsKey(st)) return;
+    st.insideCounted = true;
+    funnel.closedInside++;
+    countZone(st); // a zone (or QM limit) from candle 2 that is still there
+  };
 
   // ---- the zone chart (1-hour, or 4-hour for weekly CRTs) ----
   const onZone = (doneAt: number) => {
@@ -559,40 +589,46 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
       const z = zLows[x];
       if (z.takenAt === Infinity && z.t < b.t && b.l < z.price) z.takenAt = b.t;
     }
-    // zones for the shift entry (and the OB and FVG check for both)
+    // zones for the BOS entries (and the OB and FVG check for all)
     for (const st of setups) {
       if (st.done || !st.swept || st.zone || cfg.zone === "off" || needsKey(st)) continue;
-      let zone: Zone | null = null;
-      if (cfg.zone === "ob") {
-        // the last opposite candle since the sweep, once a close goes beyond it
-        for (let x = n1 - 2; x >= 0 && zb[x].t >= st.sweepZoneT; x--) {
-          const ob = zb[x];
-          const opposite = st.dir === 1 ? ob.c < ob.o : ob.c > ob.o;
-          if (!opposite) continue;
-          if (st.dir === 1 ? b.c > ob.h : b.c < ob.l) zone = { top: ob.h, bottom: ob.l, t: doneAt, ob: { top: ob.h, bottom: ob.l, t: ob.t } };
-          break;
-        }
-      } else if (n1 >= 3 && zb[n1 - 3].t >= st.sweepZoneT) {
+      const long = st.dir === 1;
+      const opposite = (x: ZBar) => (long ? x.c < x.o : x.c > x.o);
+      // the last opposite candle since the sweep, at or before index `to`
+      const obAt = (to: number) => {
+        for (let x = to; x >= 0 && zb[x].t >= st.sweepZoneT; x--) if (opposite(zb[x])) return zb[x];
+        return null;
+      };
+      let fvg: { top: number; bottom: number; t: number } | null = null;
+      if (n1 >= 3 && zb[n1 - 3].t >= st.sweepZoneT) {
         const a = zb[n1 - 3];
-        const gap = st.dir === 1 ? b.l > a.h : b.h < a.l;
-        if (gap) {
-          const fvg = st.dir === 1 ? { top: b.l, bottom: a.h, t: a.t } : { top: a.l, bottom: b.h, t: a.t };
-          if (cfg.zone === "fvg") zone = { top: fvg.top, bottom: fvg.bottom, t: doneAt, fvg };
-          else {
-            // order block: the last opposite candle before the move that left the gap
-            for (let x = n1 - 3; x >= 0 && zb[x].t >= st.sweepZoneT; x--) {
-              const ob = zb[x];
-              if (st.dir === 1 ? ob.c < ob.o : ob.c > ob.o) {
-                zone = { top: Math.max(fvg.top, ob.h), bottom: Math.min(fvg.bottom, ob.l), t: doneAt, fvg, ob: { top: ob.h, bottom: ob.l, t: ob.t } };
-                break;
-              }
-            }
-          }
+        if (long ? b.l > a.h : b.h < a.l) fvg = long ? { top: b.l, bottom: a.h, t: a.t } : { top: a.l, bottom: b.h, t: a.t };
+      }
+      let zone: Zone | null = null;
+      if (cfg.zone === "ob" || (cfg.zone === "any" && !fvg)) {
+        // an order block, once a close goes past it
+        const ob = obAt(n1 - 2);
+        if (ob && (long ? b.c > ob.h : b.c < ob.l)) zone = { top: ob.h, bottom: ob.l, t: doneAt, ob: { top: ob.h, bottom: ob.l, t: ob.t } };
+      } else if (fvg) {
+        // the order block before the move that left the gap
+        const ob = obAt(n1 - 3);
+        const obz = ob ? { top: ob.h, bottom: ob.l, t: ob.t } : undefined;
+        if (cfg.zone === "fvg") zone = { top: fvg.top, bottom: fvg.bottom, t: doneAt, fvg };
+        else if (cfg.zone === "obFvg") {
+          if (obz) zone = { top: Math.max(fvg.top, obz.top), bottom: Math.min(fvg.bottom, obz.bottom), t: doneAt, fvg, ob: obz };
+        } else {
+          // any: the gap, joined with the order block when they overlap
+          const overlap = !!obz && Math.max(obz.bottom, fvg.bottom) < Math.min(obz.top, fvg.top);
+          zone = overlap && obz
+            ? { top: Math.max(fvg.top, obz.top), bottom: Math.min(fvg.bottom, obz.bottom), t: doneAt, fvg, ob: obz }
+            : { top: fvg.top, bottom: fvg.bottom, t: doneAt, fvg, ob: obz };
         }
       }
+      // it has to sit in the killer zone: past candle 1's body, on the swept side
+      if (zone && cfg.zoneInKiller && (long ? zone.top > st.bodyEdge : zone.bottom < st.bodyEdge)) zone = null;
       if (zone) {
         st.zone = zone;
-        if (!st.zoneCounted && cfg.entry === "shift") { st.zoneCounted = true; funnel.zones++; }
+        if (cfg.entry !== "qm") countZone(st);
       }
     }
   };
@@ -630,7 +666,8 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
             const canNext = cfg.timing !== "sameDay" && st.swept && inside;
             if (!canNext) { st.done = true; st.why = !st.swept ? "noSweep" : cfg.timing === "sameDay" ? "sameDayOnly" : "closedOutside"; continue; }
             if (!cfg.deeperSweeps && needsKey(st)) { st.done = true; st.why = "noKey"; continue; }
-            if (!st.insideCounted && !needsKey(st)) { st.insideCounted = true; funnel.closedInside++; }
+            st.closedIn = true;
+            countInside(st);
             if (cfg.timing === "nextDay") st.touched = false; // the shift entry waits for a fresh retest
           } else if (st.p2 < curP && !inside) { st.done = true; st.why = "closedOutside"; }
         }
@@ -656,10 +693,10 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
             dir, p1: pi - 1, p2: pi, rangeHigh: prev.h, rangeLow: prev.l, mid: (prev.h + prev.l) / 2,
             bodyEdge: dir === 1 ? Math.min(prev.o, prev.c) : Math.max(prev.o, prev.c), bias: struct,
             swept: false, sweepT: 0, sweepI: 0, sweepPrice: 0, sweepZoneT: 0,
-            keyLevel: null, keyChecked: false, keyCounted: false, insideCounted: false,
+            keyLevel: null, keyChecked: false, keyCounted: false, closedIn: false, insideCounted: false,
             zone: null, zoneCounted: false, touched: false, touchCounted: false, touchT: 0,
             extreme: 0, extremeT: 0, extremeI: 0,
-            heads: [], qm: null, qmCounted: false, fillCounted: false,
+            heads: [], qm: null, rt: null, fillCounted: false,
             done: false, why: null, skipR: null, trade: null
           };
           setups.push(st);
@@ -772,6 +809,7 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
           st.keyChecked = true;
           st.keyLevel = findKey(st, now);
           if (st.keyLevel && !st.keyCounted) { st.keyCounted = true; funnel.keyLevels++; }
+          if (st.keyLevel) countInside(st); // candle 2 closed inside before a deeper sweep found the level
         }
         if (!st.keyLevel) continue;
       }
@@ -819,14 +857,36 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
               smsLevel: h.level, smsT: E.t[smsI] + dt, smsI: i, displaced: displacedAt(smsI, st.dir), ob: qmOb(st.dir, h.t)
             };
             st.heads = [];
-            if (!st.qmCounted) { st.qmCounted = true; funnel.zones++; }
+            countZone(st);
             break;
           }
         }
         continue;
       }
 
-      // ---- shift entry: zone touch, zone failure, then a close beyond the last swing ----
+      // ---- retest entry: a limit waits at the order block the BOS left ----
+      if (st.rt) {
+        const q = st.rt;
+        if (i <= q.bosI || !(long ? lo + sp <= q.level : hi >= q.level)) continue;
+        // a limit fills at its price, or at the open if price jumped past it
+        const entry = long ? Math.min(q.level, o + sp) : Math.max(q.level, o);
+        let far = long ? -Infinity : Infinity;
+        for (let x = q.turnI + 1; x <= i; x++) far = long ? Math.max(far, E.h[x]) : Math.min(far, E.l[x]);
+        const leg = long ? far - q.turn : q.turn - far, back = long ? far - entry : entry - far;
+        const fib = leg > 0 && back / leg >= 0.5 && back / leg <= 0.786;
+        const op = enter(st, i, entry, { level: q.swing, t: q.swingT }, {
+          qm: null, retest: { level: q.level, top: q.top, bottom: q.bottom, obT: q.obT, bosT: q.bosT },
+          fib, displacement: q.displacement, turnI: q.turnI, anchor: q.anchor, touchT: q.touchT
+        });
+        // worst case: the candle that filled the limit also reached the stop
+        if (op && (long ? lo <= op.stop : hi + sp >= op.stop)) {
+          closeTrade(op, now, op.stop, "stop");
+          open = open.filter((x) => x !== op);
+        }
+        continue;
+      }
+
+      // ---- BOS entries: zone touch, zone failure, then a close beyond the last swing ----
       if (cfg.zone === "off") {
         if (!st.touched) { st.touched = true; st.touchT = st.sweepT; st.extreme = st.sweepPrice; st.extremeT = st.sweepT; st.extremeI = st.sweepI; }
       } else if (st.zone && t >= st.zone.t) {
@@ -837,7 +897,7 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
           st.extreme = long ? lo : hi;
           st.extremeT = t;
           st.extremeI = i;
-          if (!st.touchCounted) { st.touchCounted = true; funnel.touches++; }
+          if (!st.touchCounted && pastC2(st)) { st.touchCounted = true; funnel.touches++; }
         }
       }
       if (!st.touched) continue;
@@ -867,9 +927,18 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
         : st.sweepPrice;
       const avg = bodyCount ? bodySum / bodyCount : 0;
       const displacement = avg > 0 && Math.abs(c - o) >= 1.5 * avg && (long ? c > o : c < o);
-      enter(st, i, long ? c + sp : c, { level: swing.price, t: swing.t }, {
-        qm: null, fib, displacement, turnI: st.extremeI, anchor, touchT: cfg.zone === "off" ? null : st.touchT
-      });
+      const touchT = cfg.zone === "off" ? null : st.touchT;
+      if (cfg.entry === "retest") {
+        // the order block the BOS left: the last candle against the move, at or before the turn
+        let ob = st.extremeI;
+        for (let y = st.extremeI; y >= Math.max(0, st.extremeI - 12); y--) if (long ? E.c[y] < E.o[y] : E.c[y] > E.o[y]) { ob = y; break; }
+        st.rt = {
+          level: long ? E.h[ob] : E.l[ob], top: E.h[ob], bottom: E.l[ob], obT: E.t[ob], bosT: now, bosI: i,
+          swing: swing.price, swingT: swing.t, turn: st.extreme, turnI: st.extremeI, displacement, anchor, touchT
+        };
+        continue;
+      }
+      enter(st, i, long ? c + sp : c, { level: swing.price, t: swing.t }, { qm: null, fib, displacement, turnI: st.extremeI, anchor, touchT });
     }
     if (setups.some((st) => st.done)) setups = setups.filter((st) => !st.done);
 
