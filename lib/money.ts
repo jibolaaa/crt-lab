@@ -1,6 +1,7 @@
 // Turns R results into dollars for a given account, lot size and leverage.
-// Every market here is quoted in US dollars, so a price move of 1.0 on one
-// unit is $1: a trade's dollars are price move x contract size x lots.
+// A trade's money is price move x contract size x lots, in the quote
+// currency; markets quoted in dollars need nothing more, and the others
+// (GBP/JPY in yen) are turned into dollars at the contract's set rate.
 import type { Trade } from "../engine";
 import type { Spec } from "./markets";
 
@@ -41,7 +42,7 @@ export function roundLots(x: number, step: number) {
 }
 
 export function dollarsPerMove(spec: Spec, lots: number) {
-  return spec.contract * lots;
+  return spec.contract * lots * (spec.quoteUsd ?? 1);
 }
 
 export function simulate(trades: Trade[], spec: Spec, m: MoneyCfg): MoneyResult {
@@ -71,7 +72,7 @@ export function simulate(trades: Trade[], spec: Spec, m: MoneyCfg): MoneyResult 
     let lots = m.mode === "lots" ? Math.max(spec.minLot, roundLots(m.lots, spec.lotStep)) : 0;
     let minLotTooBig = false;
     if (m.mode === "risk") {
-      const perLot = tr.risk * spec.contract;
+      const perLot = tr.risk * dollarsPerMove(spec, 1);
       lots = roundLots((balance * m.riskPct) / 100 / perLot, spec.lotStep);
       if (lots < spec.minLot) { lots = spec.minLot; minLotTooBig = true; }
     }
@@ -80,7 +81,7 @@ export function simulate(trades: Trade[], spec: Spec, m: MoneyCfg): MoneyResult 
     const share = balance > 0 ? riskUsd / balance : Infinity;
     const money: TradeMoney = {
       lots, balance, riskUsd, targetUsd: tr.plannedR * riskUsd, pnlUsd: empty ? 0 : tr.r * riskUsd,
-      riskShare: share, margin: (lots * spec.contract * tr.entry) / Math.max(1, m.leverage), minLotTooBig, skipped: empty
+      riskShare: share, margin: (dollarsPerMove(spec, lots) * tr.entry) / Math.max(1, m.leverage), minLotTooBig, skipped: empty
     };
     byId.set(tr.id, money);
     if (!empty) {

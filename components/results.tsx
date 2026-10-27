@@ -1,6 +1,6 @@
 "use client";
 import { useMemo } from "react";
-import { CONFLUENCES, type Config, type Grade, type RunResult, type Stats, type Trade } from "../engine";
+import { CONFLUENCES, WEIGHT, type Config, type RunResult, type Stats, type Trade } from "../engine";
 import type { Market } from "../lib/markets";
 import { fmtUsd, type MoneyCfg, type MoneyResult } from "../lib/money";
 import type { DataInfo, MatterRow } from "../lib/protocol";
@@ -194,35 +194,41 @@ export function Matters({ result, rows }: { result: RunResult | null; rows: Matt
   );
 }
 
-// ---------- how days became trades ----------
+// ---------- how candles became trades ----------
 export function Funnel({ result, cfg }: { result: RunResult | null; cfg: Config }) {
   if (!result) return null;
   const f = result.funnel;
   const max = Math.max(1, f.days, f.sweeps);
+  const what = cfg.crt.length === 2 ? "Days and weeks" : cfg.crt[0] === "week" ? "Weeks" : "Days";
   const items: { label: string; n: number; side?: string }[] = [
-    { label: "Trading days looked at", n: f.days },
+    { label: `${what} looked at as candle 2`, n: f.days },
     {
-      label: cfg.bias === "off" ? "Times a day took the day before's high or low" : "Times a day took the day before's high or low, in the bias direction",
+      label: cfg.bias === "off" ? "Candle 2 took candle 1's high or low" : "Candle 2 took candle 1's high or low, in the bias direction",
       n: f.sweeps,
       side: cfg.bias === "off" ? undefined : `${fmtInt(f.biasBlocked)} more went against the weekly bias or had no bias, so they were skipped.`
     }
   ];
   if (cfg.requireKeyLevel) items.push({ label: "The sweep reached a higher-timeframe key level", n: f.keyLevels });
-  if (cfg.zone !== "off") {
-    items.push({ label: "A 1-hour zone formed after the sweep", n: f.zones });
+  items.push({ label: "Candle 2 closed back inside candle 1", n: f.closedInside });
+  if (cfg.entry === "qm") {
+    items.push({ label: "An A-shape and a shift set a QM limit", n: f.zones });
+    items.push({ label: "Price came back to the limit", n: f.touches });
+  } else if (cfg.zone !== "off") {
+    items.push({ label: "A zone formed after the sweep", n: f.zones });
     items.push({ label: "Price came back into the zone", n: f.touches });
   }
   const skipped = [
     f.skippedNews ? `${fmtInt(f.skippedNews)} on jobs report days` : "",
     f.skippedSession ? `${fmtInt(f.skippedSession)} outside your entry times` : "",
-    f.skippedPastMid ? `${fmtInt(f.skippedPastMid)} already at 50%` : "",
+    f.skippedPastMid ? `${fmtInt(f.skippedPastMid)} past the 50% level` : "",
     f.skippedLowR ? `${fmtInt(f.skippedLowR)} with the target too close in R` : "",
-    f.skippedDailyCap ? `${fmtInt(f.skippedDailyCap)} over the daily limit` : ""
+    f.skippedDailyCap ? `${fmtInt(f.skippedDailyCap)} over the daily limit` : "",
+    f.skippedOverlap ? `${fmtInt(f.skippedOverlap)} while already in a trade the same way` : ""
   ].filter(Boolean);
-  items.push({ label: "Structure shifted and a trade was taken", n: f.entries, side: skipped.length ? `Skipped after a shift: ${skipped.join(", ")}.` : undefined });
+  items.push({ label: "Trades taken", n: f.entries, side: skipped.length ? `Skipped at the entry: ${skipped.join(", ")}.` : undefined });
   return (
     <section className="sec-funnel" aria-labelledby="funnel-h">
-      <h2 className="sec" id="funnel-h">From days to trades</h2>
+      <h2 className="sec" id="funnel-h">From candles to trades</h2>
       <ol className="funnel">
         {items.map((it, i) => (
           <li key={it.label} className={i === items.length - 1 ? "last" : ""}>
@@ -237,26 +243,27 @@ export function Funnel({ result, cfg }: { result: RunResult | null; cfg: Config 
   );
 }
 
-// ---------- do more confluences help? ----------
-const GRADES: Grade[] = ["A+", "A", "B", "C"];
+// ---------- does a higher percent help? ----------
+const BANDS: [string, number, number][] = [["75% or more", 75, 101], ["50% to 74%", 50, 75], ["Under 50%", 0, 50]];
 const sum = (ts: Trade[]) => ts.reduce((a, t) => a + t.r, 0);
 
 export function Grades({ result }: { result: RunResult | null }) {
   if (!result || !result.all.trades) return null;
   const ts = result.trades;
   const cell = (list: Trade[]) => (list.length ? <span className={tone(sum(list) / list.length, 0.005)}>{fmtR(sum(list) / list.length, 2)}</span> : "–");
+  const days = ts.filter((t) => t.tf === "day"), weeks = ts.filter((t) => t.tf === "week");
   return (
     <section className="sec-grades" aria-labelledby="grades-h">
-      <h2 className="sec" id="grades-h">Do more confluences help?</h2>
+      <h2 className="sec" id="grades-h">Does a higher percent help?</h2>
       <p className="sec-note">
-        Each trade is graded on {CONFLUENCES.length} confluences. A+ has all of them, A misses one or two, B three or four, C more. If better grades don&apos;t do better, the extra confluences aren&apos;t adding an edge here.
+        Each trade scores your checklist: {CONFLUENCES.length} checks, with the {CONFLUENCES.filter((c) => WEIGHT[c] > 1).length} direction checks counting double. If higher percents don&apos;t do better, the checks aren&apos;t adding an edge here.
       </p>
       <div className="table-wrap">
         <table className="grid">
-          <thead><tr><th scope="col">Grade</th><th scope="col">Trades</th><th scope="col">Won</th><th scope="col">Average</th><th scope="col">Total</th></tr></thead>
+          <thead><tr><th scope="col">Percent</th><th scope="col">Trades</th><th scope="col">Won</th><th scope="col">Average</th><th scope="col">Total</th></tr></thead>
           <tbody>
-            {GRADES.map((g) => {
-              const list = ts.filter((t) => t.grade === g);
+            {BANDS.map(([g, lo, hi]) => {
+              const list = ts.filter((t) => t.pct >= lo - 1e-9 && t.pct < hi - 1e-9);
               return (
                 <tr key={g}>
                   <th scope="row">{g}</th>
@@ -270,11 +277,29 @@ export function Grades({ result }: { result: RunResult | null }) {
           </tbody>
         </table>
       </div>
+      {days.length > 0 && weeks.length > 0 && (
+        <div className="table-wrap" style={{ marginTop: 18 }}>
+          <table className="grid">
+            <thead><tr><th scope="col">CRT</th><th scope="col">Trades</th><th scope="col">Won</th><th scope="col">Average</th><th scope="col">Total</th></tr></thead>
+            <tbody>
+              {([["Daily", days], ["Weekly", weeks]] as [string, Trade[]][]).map(([name, list]) => (
+                <tr key={name}>
+                  <th scope="row">{name}</th>
+                  <td>{fmtInt(list.length)}</td>
+                  <td>{fmtPct(list.filter((t) => t.r > 0.005).length / list.length)}</td>
+                  <td>{cell(list)}</td>
+                  <td><span className={tone(sum(list))}>{fmtR(sum(list))}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="table-wrap" style={{ marginTop: 18 }}>
         <table className="grid">
           <thead>
             <tr>
-              <th scope="col">Confluence</th>
+              <th scope="col">Check</th>
               <th scope="col">With it<small>trades</small></th>
               <th scope="col"><span className="sr">With it, </span>average</th>
               <th scope="col">Without<small>trades</small></th>
@@ -282,8 +307,8 @@ export function Grades({ result }: { result: RunResult | null }) {
             </tr>
           </thead>
           <tbody>
-            {CONFLUENCES.map((c) => {
-              const yes = ts.filter((t) => t.conf[c]), no = ts.filter((t) => !t.conf[c]);
+            {CONFLUENCES.filter((c) => ts.some((t) => t.conf[c] !== null)).map((c) => {
+              const yes = ts.filter((t) => t.conf[c] === true), no = ts.filter((t) => t.conf[c] === false);
               return (
                 <tr key={c}>
                   <th scope="row">{CONF_LABEL[c]}</th>

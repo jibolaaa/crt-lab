@@ -8,12 +8,13 @@ const ctx = self as unknown as DedicatedWorkerGlobalScope;
 const post = (msg: FromWorker) => ctx.postMessage(msg);
 
 let series: Series | null = null;
+let partner: Series | null = null; // a related market, for the SMT check
 let prepared: { key: string; p: Prepared } | null = null;
 let latestRun = 0;
 
 function getPrepared(cfg: Config) {
   const key = `${cfg.dayStart}|${cfg.weekendClosed}|${cfg.swingWeekly}`;
-  if (!prepared || prepared.key !== key) prepared = { key, p: prepare(series!, cfg) };
+  if (!prepared || prepared.key !== key) prepared = { key, p: prepare(series!, cfg, partner) };
   return prepared.p;
 }
 
@@ -44,8 +45,10 @@ ctx.onmessage = async (e: MessageEvent<ToWorker>) => {
   try {
     if (msg.type === "load" || msg.type === "series") {
       series = null;
+      partner = null;
       prepared = null;
       let pipSize: number | null = null, shortBy: string | null = null;
+      let smt: { name: string; ok: boolean } | null = null;
       if (msg.type === "load") {
         post({ type: "progress", job: msg.job, text: "Loading 8 years of prices", fraction: 0 });
         series = seriesFromBuffer(await fetchWithProgress(msg.url, msg.job));
@@ -54,11 +57,14 @@ ctx.onmessage = async (e: MessageEvent<ToWorker>) => {
         series = { n: msg.t.length, t: msg.t, o: msg.o, h: msg.h, l: msg.l, c: msg.c };
         pipSize = msg.pipSize;
         shortBy = msg.shortBy;
+        const pc = msg.partner;
+        if (pc && pc.t.length) partner = { n: pc.t.length, t: pc.t, o: pc.o, h: pc.h, l: pc.l, c: pc.c };
+        smt = msg.smt;
       }
       if (!series.n) throw new Error("No prices came back for this market.");
       post({
         type: "loaded", job: msg.job,
-        info: { marketId: msg.marketId, count: series.n, from: series.t[0], to: series.t[series.n - 1] + 900, lastClose: series.c[series.n - 1], pipSize, shortBy }
+        info: { marketId: msg.marketId, count: series.n, from: series.t[0], to: series.t[series.n - 1] + 900, lastClose: series.c[series.n - 1], pipSize, shortBy, smt }
       });
     } else if (msg.type === "run") {
       latestRun = msg.job;

@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { CONFLUENCES, type RunResult, type Trade } from "../engine";
+import type { RunResult, Trade } from "../engine";
 import type { Market } from "../lib/markets";
 import { fmtUsd, type MoneyCfg, type MoneyResult, type TradeMoney } from "../lib/money";
-import { CONF_LABEL, KIND_LABEL, TF_LABEL } from "../lib/confluences";
+import { TF_LABEL, kindName } from "../lib/confluences";
 import { fmtDate, fmtDay, fmtPrice, fmtR, fmtTime } from "../lib/format";
 import { TradeChart, type Candles } from "./chart";
+import { Checklist } from "./now";
 
 export type { Candles };
 
@@ -13,7 +14,7 @@ const SHORT: Record<Trade["reason"], string> = {
   tp2: "Hit the target",
   stop: "Stopped out",
   breakeven: "Half at 50%, the rest back at entry",
-  time: "Closed at the end of day 3",
+  time: "Closed at the time limit",
   end: "Still open when the prices ended"
 };
 
@@ -48,7 +49,7 @@ export function Trades({ result, market, getCandles, money, moneyCfg }: Props) {
   return (
     <section className="sec-trades" aria-labelledby="trades-h">
       <h2 className="sec" id="trades-h">Every trade</h2>
-      <p className="sec-note">Newest first, with each trade&apos;s grade. Open one to see it on the chart, step by step. Times are UTC, like Deriv&apos;s MT5 charts.</p>
+      <p className="sec-note">Newest first, with how much of your checklist each one met. Open one to see it on the chart, step by step. Times are UTC, like Deriv&apos;s MT5 charts.</p>
       <div className="filters" role="radiogroup" aria-label="Show">
         {(["all", "won", "lost"] as Filter[]).map((f) => (
           <label key={f} className="chip">
@@ -65,8 +66,8 @@ export function Trades({ result, market, getCandles, money, moneyCfg }: Props) {
               <button className="trow" onClick={() => setOpen(t)}>
                 <span className={`dir ${t.dir === 1 ? "buy" : "sell"}`}>{t.dir === 1 ? "Buy" : "Sell"}</span>
                 <span className="t-main">
-                  <span className="t-date">{fmtDay(t.entryT - 900)} {new Date(t.entryT * 1000).getUTCFullYear()} <span className="grade" aria-label={`grade ${t.grade}`}>{t.grade}</span></span>
-                  <span className="t-why">{SHORT[t.reason]}</span>
+                  <span className="t-date">{fmtDay(t.entryT - 900)} {new Date(t.entryT * 1000).getUTCFullYear()} <span className="grade" aria-label={`${Math.round(t.pct)}% of the checklist`}>{Math.round(t.pct)}%</span></span>
+                  <span className="t-why">{t.tf === "week" ? "Weekly CRT. " : ""}{SHORT[t.reason]}</span>
                 </span>
                 <span className="t-end">
                   <span className={`t-r ${tone(t.r)}`}>{fmtR(t.r, 2)}</span>
@@ -94,8 +95,9 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, onClose }: 
   useEffect(() => { const d = ref.current; if (d && !d.open) d.showModal(); }, []);
   useEffect(() => {
     let live = true;
-    getCandles(t.rangeDayT, Math.max(t.exitT, t.entryT) + 8 * 900).then(
-      (c) => { if (live) setCandles(c); },
+    const pad = t.tf === "week" ? 8 * 3600 : 8 * 900;
+    getCandles(t.rangeDayT, Math.max(t.exitT, t.entryT) + pad).then(
+      (c) => { if (live) setCandles(t.tf === "week" ? hourly(c) : c); }, // weekly CRTs are drawn on 1-hour candles
       (e: Error) => { if (live) setErr(e.message); }
     );
     return () => { live = false; };
@@ -104,22 +106,32 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, onClose }: 
   const long = t.dir === 1;
   const d = market.digits;
   const px = (x: number) => fmtPrice(x, d);
+  const weekly = t.tf === "week";
   // a Monday's candle starts on Sunday evening, so name the day by its middle
-  const rangeDay = fmtDay(t.rangeDayT + 12 * 3600).split(" ")[0];
+  const rangeDay = weekly ? "Week" : fmtDay(t.rangeDayT + 12 * 3600).split(" ")[0];
+  const entryChart = weekly ? "1-hour" : "15-minute";
+  const zoneChart = weekly ? "4-hour" : "1-hour";
   const steps: { t?: number; day?: string; text: string }[] = [
-    { day: rangeDay, text: `Range day (candle 1): high ${px(t.rangeHigh)}, low ${px(t.rangeLow)}, 50% at ${px(t.mid)}.` },
+    { day: rangeDay, text: `Candle 1 (${weekly ? `the week of ${fmtDate(t.rangeDayT + 12 * 3600)}` : "the range day"}): high ${px(t.rangeHigh)}, low ${px(t.rangeLow)}, 50% at ${px(t.mid)}.` },
     {
       t: t.sweepT,
-      text: `Candle 2 took the day before's ${long ? "low" : "high"}, reaching ${px(t.sweepPrice)}` +
-        (t.keyLevel ? `, into a ${TF_LABEL[t.keyLevel.tf]} ${KIND_LABEL[t.keyLevel.kind]} at ${px(t.keyLevel.bottom)} to ${px(t.keyLevel.top)}.` : ".")
+      text: `${t.sweepT >= t.sweepDayT + (weekly ? 7 : 1) * 86400 ? "A later candle swept further" : "Candle 2 took candle 1's " + (long ? "low" : "high")}, reaching ${px(t.sweepPrice)}` +
+        (t.keyLevel ? `, into a ${TF_LABEL[t.keyLevel.tf]} ${kindName(t.keyLevel.kind, t.dir)} at ${t.keyLevel.top === t.keyLevel.bottom ? px(t.keyLevel.top) : `${px(t.keyLevel.bottom)} to ${px(t.keyLevel.top)}`}.` : ".")
     }
   ];
-  if (t.zone) {
-    const kind = t.zone.fvg && t.zone.ob ? "order block and gap" : t.zone.fvg ? "gap" : "order block";
-    steps.push({ t: t.zone.t, text: `1-hour ${kind} finished forming: ${px(t.zone.bottom)} to ${px(t.zone.top)}.` });
-    if (t.touchT) steps.push({ t: t.touchT, text: "Price came back into the zone." });
+  if (t.qm) {
+    const q = t.qm;
+    steps.push({ t: q.headT, text: `A-shape ${long ? "bottom" : "top"} at ${px(q.head)}, beyond the ${px(q.level)} ${long ? "low" : "high"} before it (the QM line).` });
+    steps.push({ t: q.smsT, text: `A ${entryChart} candle closed ${long ? "above" : "below"} ${px(q.smsLevel)}: the shift. ${long ? "Buy" : "Sell"} limit set at ${px(q.level)}.` });
+    steps.push({ t: t.entryT - (weekly ? 3600 : 900), text: `Price came back to the line. ${long ? "Bought" : "Sold"} at ${px(t.entry)}, on candle ${t.entryCandle} of the CRT.` });
+  } else {
+    if (t.zone) {
+      const kind = t.zone.fvg && t.zone.ob ? "order block and gap" : t.zone.fvg ? "gap" : "order block";
+      steps.push({ t: t.zone.t, text: `${zoneChart} ${kind} finished forming: ${px(t.zone.bottom)} to ${px(t.zone.top)}.` });
+      if (t.touchT) steps.push({ t: t.touchT, text: "Price came back into the zone." });
+    }
+    steps.push({ t: t.entryT, text: `A ${entryChart} candle closed ${long ? "above" : "below"} the ${px(t.mssLevel)} swing ${long ? "high" : "low"}. ${long ? "Bought" : "Sold"} at ${px(t.entry)}, on candle ${t.entryCandle} of the CRT.` });
   }
-  steps.push({ t: t.entryT, text: `A 15-minute candle closed ${long ? "above" : "below"} the ${px(t.mssLevel)} swing ${long ? "high" : "low"}. ${long ? "Bought" : "Sold"} at ${px(t.entry)}.` });
   steps.push({
     text: `Stop ${px(t.stop)}, risking ${units(t.risk, market)}. Target ${px(t.tp2)}, ${t.plannedR.toFixed(1)}R away` +
       (t.partial ? `, with half off at ${px(t.tp1)}.` : ".")
@@ -135,7 +147,7 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, onClose }: 
       <div className="sheet-inner">
         <div className="sheet-head">
           <div>
-            <h3 id="sheet-h">{long ? "Buy" : "Sell"} on {fmtDate(t.entryT - 900)}, grade {t.grade}</h3>
+            <h3 id="sheet-h">{long ? "Buy" : "Sell"} on {fmtDate(t.entryT - 900)}, {weekly ? "weekly" : "daily"} CRT, {Math.round(t.pct)}% of the checklist</h3>
             <p className={tone(t.r)}>{fmtR(t.r, 2)}{money && !money.skipped ? ` (${fmtUsd(money.pnlUsd)})` : ""}. {SHORT[t.reason]}.</p>
           </div>
           <button className="close" onClick={() => ref.current?.close()} aria-label="Close">
@@ -151,8 +163,9 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, onClose }: 
             <li><i style={{ borderColor: "var(--fog)" }} />Range high and low</li>
             <li><i className="dash" style={{ borderColor: "var(--gold)" }} />50%</li>
             {t.keyLevel && <li><i className="box" style={{ borderColor: "rgba(154,163,176,0.6)", background: "rgba(154,163,176,0.12)" }} />Key level</li>}
-            {t.zone && <li><i className="box" style={{ borderColor: "rgba(227,176,75,0.6)", background: "rgba(227,176,75,0.13)" }} />1-hour zone</li>}
-            <li><i className="dash" style={{ borderColor: "var(--paper)" }} />Swing that broke</li>
+            {t.zone && !t.qm && <li><i className="box" style={{ borderColor: "rgba(227,176,75,0.6)", background: "rgba(227,176,75,0.13)" }} />{zoneChart} zone</li>}
+            {t.qm && <li><i className="dash" style={{ borderColor: "var(--gold)" }} />QM line</li>}
+            <li><i className="dash" style={{ borderColor: "var(--paper)" }} />{t.qm ? "The shift" : "Swing that broke"}</li>
             <li><i className="dash" style={{ borderColor: "var(--down)" }} />Stop</li>
             <li><i style={{ borderColor: "var(--up)" }} />Target</li>
           </ul>
@@ -162,26 +175,29 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, onClose }: 
           <ol className="story">
             {steps.map((s, i) => (
               <li key={i}>
-                <time>{s.t !== undefined ? <><span className="s-day">{fmtDay(s.t).split(" ")[0]}</span>{fmtTime(s.t)}</> : s.day ? <span className="s-day">{s.day}</span> : null}</time>
+                <time>{s.t !== undefined ? <><span className="s-day">{weekly ? fmtDay(s.t) : fmtDay(s.t).split(" ")[0]}</span>{fmtTime(s.t)}</> : s.day ? <span className="s-day">{s.day}</span> : null}</time>
                 <span>{s.text}</span>
               </li>
             ))}
           </ol>
 
-          <h4 className="checks-h">Confluences: {t.score} of {CONFLUENCES.length}</h4>
-          <ul className="checks">
-            {CONFLUENCES.map((c) => (
-              <li key={c} className={t.conf[c] ? "yes" : "no"}>
-                <span aria-hidden>{t.conf[c] ? "✓" : "–"}</span>
-                <span className="sr">{t.conf[c] ? "Met: " : "Not met: "}</span>
-                {CONF_LABEL[c]}
-              </li>
-            ))}
-          </ul>
+          <h4 className="checks-h">Checklist: {t.points} of {t.maxPoints} points ({Math.round(t.pct)}%)</h4>
+          <Checklist conf={t.conf} />
         </div>
       </div>
     </dialog>
   );
+}
+
+/** 15-minute candles joined into 1-hour ones. */
+function hourly(c: Candles): Candles {
+  const out: Candles = { t: [], o: [], h: [], l: [], c: [] };
+  for (let i = 0; i < c.t.length; i++) {
+    const ht = c.t[i] - (c.t[i] % 3600), k = out.t.length - 1;
+    if (k < 0 || out.t[k] !== ht) { out.t.push(ht); out.o.push(c.o[i]); out.h.push(c.h[i]); out.l.push(c.l[i]); out.c.push(c.c[i]); }
+    else { out.h[k] = Math.max(out.h[k], c.h[i]); out.l[k] = Math.min(out.l[k], c.l[i]); out.c[k] = c.c[i]; }
+  }
+  return out;
 }
 
 function MoneyNote({ money: m, cfg }: { money: TradeMoney; cfg: MoneyCfg }) {

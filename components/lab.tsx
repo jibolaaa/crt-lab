@@ -2,9 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_CONFIG, type Config, type RunResult } from "../engine";
 import { DEFAULT_MARKET, defaultSpread, defaultStopBuffer, marketById, type Spec } from "../lib/markets";
-import { loadDerivCandles } from "../lib/deriv";
+import { loadDerivCandles, type DerivCandle } from "../lib/deriv";
 import { simulate, type MoneyCfg } from "../lib/money";
-import type { DataInfo, FromWorker, MatterRow, Request, ToWorker } from "../lib/protocol";
+import type { Columns, DataInfo, FromWorker, MatterRow, Request, ToWorker } from "../lib/protocol";
 import { readHash, writeHash } from "../lib/urlstate";
 import { fmtR } from "../lib/format";
 import { MarketBar, Settings } from "./controls";
@@ -132,13 +132,37 @@ export default function Lab() {
         if (loadJob.current !== id) return;
         setLoading({ text: `Loading from Deriv: ${count.toLocaleString("en-GB")} candles so far`, fraction: Math.min(1, Math.max(0, (start - oldest) / (start - from))) });
       }
-    }).then((res) => {
+    }).then(async (res) => {
       if (loadJob.current !== id) return; // a newer load started
       const now = Date.now() / 1000;
-      const rows = res.candles.filter((c) => c.epoch + 900 <= now); // the newest candle is usually still forming
-      const col = (k: "epoch" | "open" | "high" | "low" | "close") => Float64Array.from(rows, (r) => r[k]);
-      const msg = { type: "series" as const, job: id, marketId: mk.id, t: col("epoch"), o: col("open"), h: col("high"), l: col("low"), c: col("close"), pipSize: res.pipSize, shortBy: res.shortBy };
-      worker.current?.postMessage(msg, [msg.t.buffer, msg.o.buffer, msg.h.buffer, msg.l.buffer, msg.c.buffer]);
+      const columns = (candles: DerivCandle[]): Columns => {
+        const rows = candles.filter((c) => c.epoch + 900 <= now); // the newest candle is usually still forming
+        const col = (k: "epoch" | "open" | "high" | "low" | "close") => Float64Array.from(rows, (r) => r[k]);
+        return { t: col("epoch"), o: col("open"), h: col("high"), l: col("low"), c: col("close") };
+      };
+      const main = columns(res.candles);
+      // the related market for the SMT check; the test still runs without it
+      let partner: Columns | null = null, smt: { name: string; ok: boolean } | null = null;
+      if (mk.smt && main.t.length) {
+        const pFrom = main.t[0];
+        setLoading({ text: `Loading ${mk.smt.name} for the SMT check`, fraction: 0 });
+        try {
+          const pr = await loadDerivCandles(mk.smt.symbol, {
+            from: pFrom,
+            onProgress: (count, oldest) => {
+              if (loadJob.current === id) setLoading({ text: `Loading ${mk.smt!.name} for the SMT check`, fraction: Math.min(1, Math.max(0, (now - oldest) / (now - pFrom))) });
+            }
+          });
+          partner = columns(pr.candles);
+          smt = { name: mk.smt.name, ok: partner.t.length > 0 };
+        } catch {
+          smt = { name: mk.smt.name, ok: false };
+        }
+        if (loadJob.current !== id) return;
+      }
+      const msg = { type: "series" as const, job: id, marketId: mk.id, ...main, pipSize: res.pipSize, shortBy: res.shortBy, partner, smt };
+      const parts = partner ? [main, partner] : [main];
+      worker.current?.postMessage(msg, parts.flatMap((x) => [x.t.buffer, x.o.buffer, x.h.buffer, x.l.buffer, x.c.buffer]));
     }, (e: Error) => {
       if (loadJob.current !== id) return;
       setLoadError(e.message);
@@ -197,7 +221,7 @@ export default function Lab() {
       </header>
 
       <main className="page simple">
-        <p className="tagline">Your CRT rules on real prices: where today&apos;s setup stands, and how the rules have done.</p>
+        <p className="tagline">Your CRT rules on real prices: today&apos;s daily and weekly setups, a call when there&apos;s an entry, and how the rules have done.</p>
 
         <MarketBar
           market={market} months={months} onMarket={setMarketId} onMonths={setMonths}

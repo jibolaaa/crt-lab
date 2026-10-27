@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "CRT Lab",
-  description: "Test Candle Range Theory and SMC entry rules on years of real prices, and see every trade they would have taken."
+  description: "Daily and weekly CRT setups on live prices, a call with your checklist percent when there is an entry, and every trade the rules would have taken."
 };
 
 export const viewport: Viewport = {

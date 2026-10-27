@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useId, useState } from "react";
-import type { Config, Grade, LevelKind, Session, Tf } from "../engine";
+import type { Config, CrtTf, LevelKind, Session, Tf } from "../engine";
 import { HISTORY, MARKETS, type Market, type Spec } from "../lib/markets";
 import type { MoneyCfg } from "../lib/money";
 import type { DataInfo } from "../lib/protocol";
@@ -70,6 +70,9 @@ export function MarketBar(p: MarketProps) {
         </p>
       )}
       {p.data?.shortBy && !p.loading && <p className="warn">{p.data.shortBy} Testing what loaded.</p>}
+      {p.data?.smt && !p.loading && (
+        <p className="data-meta">{p.data.smt.ok ? `SMT is checked against ${p.data.smt.name}.` : `SMT is left out: ${p.data.smt.name} didn't load.`}</p>
+      )}
     </section>
   );
 }
@@ -89,11 +92,17 @@ export function Settings(p: Props) {
           <button className="linkbtn" onClick={p.reset}>Back to my rules</button>
         </div>
         <div className="panel">
-          <h3 className="sub">Direction</h3>
+          <h3 className="sub">The CRT</h3>
+          <Multi
+            legend="CRT candles" values={c.crt}
+            options={[["day", "Daily"], ["week", "Weekly"]] as [CrtTf, string][]}
+            onChange={(v, on) => u({ crt: toggleIn(c.crt, v, on) })}
+            hint="Daily: the day before is candle 1, entries on 15-minute candles. Weekly: the week before is candle 1, entries on 1-hour candles."
+          />
           <Choice
-            legend="Weekly bias" name="bias" value={c.bias} onChange={(v) => u({ bias: v })}
-            options={[["majority", "2 of 3 agree"], ["allAgree", "All 3 agree"], ["weeklyCrt", "Weekly CRT"], ["structure", "Structure"], ["premiumDiscount", "Premium/discount"], ["off", "Off"]]}
-            hint="Weekly CRT: last week took one side of the week before and closed back inside. Structure: the last weekly close broke a weekly swing. Premium/discount: buy below the middle of the weekly range, sell above it. Only finished weeks count."
+            legend="Weekly bias as a rule" name="bias" value={c.bias} onChange={(v) => u({ bias: v })}
+            options={[["off", "Off, it only scores"], ["structure", "Weekly structure"], ["majority", "2 of 3 agree"], ["allAgree", "All 3 agree"], ["weeklyCrt", "Weekly CRT"], ["premiumDiscount", "Premium/discount"]]}
+            hint="Off means the weekly bias only moves the percent. Otherwise trades against it are skipped. Structure: the last weekly close broke a weekly swing. Only finished weeks count."
           />
           <Choice
             legend="Daily candle starts at" name="day" value={c.dayStart} onChange={(v) => u({ dayStart: v })}
@@ -105,37 +114,54 @@ export function Settings(p: Props) {
           <h3 className="sub">Candle 2&apos;s sweep</h3>
           <Toggle
             label="Must sweep into a key level"
-            hint="Candle 2 takes candle 1's high or low and reaches a fresh higher-timeframe level past it, without running far through it."
+            hint="Candle 2 takes candle 1's high or low and reaches a fresh higher-timeframe level."
             checked={c.requireKeyLevel} onChange={(v) => u({ requireKeyLevel: v })}
           />
           <Multi
             legend="Key levels from" values={c.keyLevelTfs} disabled={!c.requireKeyLevel}
             options={[["h4", "4-hour"], ["d1", "Daily"], ["w1", "Weekly"]] as [Tf, string][]}
             onChange={(v, on) => u({ keyLevelTfs: toggleIn(c.keyLevelTfs, v, on) })}
+            hint="Weekly CRTs use the daily and weekly ones."
           />
           <Multi
             legend="Kinds of level" values={c.keyLevelKinds} disabled={!c.requireKeyLevel}
-            options={[["ob", "Order block"], ["breaker", "Breaker block"], ["fvg", "Fair value gap"]] as [LevelKind, string][]}
+            options={[["old", "Old high or low purged"], ["ob", "Order block"], ["fvg", "Fair value gap"], ["rb", "Rejection block"], ["breaker", "Breaker block"]] as [LevelKind, string][]}
             onChange={(v, on) => u({ keyLevelKinds: toggleIn(c.keyLevelKinds, v, on) })}
-            hint="Fresh means price hadn't come back to it on an earlier day. A level stops counting once a candle of its own timeframe closes through it."
+            hint="A level counts if nothing touched it before candle 1. Candle 1 may already reach it, and candle 2 goes deeper. A zone stops counting once a candle of its own timeframe closes through it."
+          />
+          <Toggle
+            label="Deeper sweeps keep the setup"
+            hint="A later candle can sweep further. The setup ends when a candle closes outside candle 1's range."
+            checked={c.deeperSweeps} onChange={(v) => u({ deeperSweeps: v })}
           />
 
           <hr className="divider" />
           <h3 className="sub">The entry</h3>
           <Choice
-            legend="1-hour zone" name="zone" value={c.zone} onChange={(v) => u({ zone: v })}
-            options={[["obFvg", "Order block + gap"], ["fvg", "Gap only"], ["ob", "Order block only"], ["off", "No zone"]]}
-            hint="After the sweep, wait for a 1-hour zone to form, then for price to come back into it before looking for the shift."
+            legend="Entry" name="entry" value={c.entry} onChange={(v) => u({ entry: v })}
+            options={[["qm", "QM limit"], ["shift", "Shift close"]]}
+            hint="QM: in the killer zone, an A-shape beyond the swing before it, then a close past the low between them sets a limit at that swing (the QM line). Shift close: price comes back into a zone, then a candle closes past the last swing."
           />
           <Choice
-            legend="Entry day" name="timing" value={c.timing} onChange={(v) => u({ timing: v })}
-            options={[["either", "Either"], ["sameDay", "Sweep day"], ["nextDay", "Next day"]]}
-            hint="Next day only counts if the sweep day closed back inside the range."
+            legend="Entry from" name="timing" value={c.timing} onChange={(v) => u({ timing: v })}
+            options={[["nextDay", "Candle 3"], ["either", "Candle 2 or 3"], ["sameDay", "Candle 2 only"]]}
+            hint="Candle 3 only counts once candle 2 closed back inside."
           />
+          <div className="numrow">
+            <NumberField label="Candles to wait" unit="after candle 2" value={c.entryWindow} min={1} max={10} onChange={(v) => u({ entryWindow: Math.max(1, Math.round(v)) })} />
+          </div>
+          <span className="hint">How long the entry can still come after candle 2, while the range holds.</span>
+          {c.entry === "shift" && (
+            <Choice
+              legend="Zone" name="zone" value={c.zone} onChange={(v) => u({ zone: v })}
+              options={[["obFvg", "Order block + gap"], ["fvg", "Gap only"], ["ob", "Order block only"], ["off", "No zone"]]}
+              hint="A 1-hour zone (4-hour for weekly CRTs) that forms after the sweep. Price has to come back into it before the shift."
+            />
+          )}
           <Choice
-            legend="15-minute swing size" name="swing" value={String(c.swing15)} onChange={(v) => u({ swing15: Number(v) })}
+            legend="Swing size" name="swing" value={String(c.swing15)} onChange={(v) => u({ swing15: Number(v) })}
             options={[["1", "1 candle"], ["2", "2 candles"], ["3", "3 candles"]]}
-            hint="How many candles each side make a swing high or low. The shift is a close beyond the last swing before the low (high for sells)."
+            hint="How many candles each side make a swing high or low on the entry chart."
           />
           <Sessions value={c.sessions} onChange={(s) => u({ sessions: s })} />
           {c.usdNews && (
@@ -146,28 +172,26 @@ export function Settings(p: Props) {
           <h3 className="sub">Stop and target</h3>
           <Choice
             legend="Stop" name="stop" value={c.stop} onChange={(v) => u({ stop: v })}
-            options={[["ob", "Beyond the 1H order block"], ["sweep", "Beyond the sweep"], ["pullback", "Beyond the pullback"]]}
-            hint="The 1H order block is the one in the entry zone. With a gap-only zone the stop goes beyond the gap, and with no zone beyond the sweep."
+            options={[["ob", "Beyond the order block"], ["sweep", "Beyond the sweep"], ["pullback", c.entry === "qm" ? "Beyond the A-shape" : "Beyond the pullback"]]}
+            hint="The order block is on the 1-hour chart, or the 4-hour for weekly CRTs."
           />
           <div className="numrow">
             <NumberField label="Stop buffer" unit={m.unitName} value={c.stopBuffer / m.unit} min={0} max={1e6} onChange={(v) => u({ stopBuffer: v * m.unit })} />
             <NumberField label="Spread" unit={m.unitName} value={c.spread / m.unit} min={0} max={1e6} onChange={(v) => u({ spread: v * m.unit })} />
           </div>
-          <span className="hint">The target is the liquidity at the far end of candle 1. The spread is an estimate: copy yours from the MT5 app.</span>
+          <span className="hint">The target is the far end of candle 1. The spread is an estimate: copy yours from the MT5 app.</span>
           <div className="numrow" style={{ marginTop: 14 }}>
             <NumberField label="Skip under" unit="R" value={c.minR} min={0} max={100} onChange={(v) => u({ minR: v })} />
             <NumberField label="Cap the target at" unit="R" value={c.maxR >= 1000 ? 0 : c.maxR} min={0} max={100} onChange={(v) => u({ maxR: v > 0 ? v : 1000 })} />
           </div>
           <span className="hint">0 means no cap.</span>
           <div className="numrow" style={{ marginTop: 14 }}>
-            <NumberField label="Below this, need a grade" unit="R" value={c.fullR} min={0} max={100} onChange={(v) => u({ fullR: v })} />
+            <NumberField label="Below this target" unit="R" value={c.fullR} min={0} max={100} onChange={(v) => u({ fullR: v })} />
+            <NumberField label="Need at least" unit="%" value={c.lowRPct} min={0} max={100} onChange={(v) => u({ lowRPct: v })} />
           </div>
-          <Choice
-            legend="Grade needed below that" name="lowg" value={c.lowRGrade} onChange={(v) => u({ lowRGrade: v as Grade | "any" })}
-            options={[["A+", "A+ (all)"], ["A", "A or better"], ["B", "B or better"], ["any", "Any"]]}
-          />
+          <span className="hint">Of the checklist. 0 means any percent.</span>
           <Toggle label="Take half at 50%" hint="Half closes at the middle of candle 1, and the stop moves to the entry price." checked={c.partialAtTp1} onChange={(v) => u({ partialAtTp1: v })} />
-          <Toggle label="Close at the end of day 3" hint="Whatever is still open closes when the day after the sweep ends." checked={c.timeStop} onChange={(v) => u({ timeStop: v })} />
+          <Toggle label="Close at the end of the next day (week)" hint="Whatever is still open closes when the day after the entry ends, or the week after for weekly CRTs." checked={c.timeStop} onChange={(v) => u({ timeStop: v })} />
           <div className="numrow">
             <NumberField label="Most trades a day" unit="trades" value={c.maxPerDay} min={0} max={50} onChange={(v) => u({ maxPerDay: Math.round(v) })} />
           </div>
@@ -199,7 +223,11 @@ export function Settings(p: Props) {
             </div>
             <div className="numrow" style={{ marginTop: 10 }}>
               <NumberField label="Lot step" unit="lots" value={p.spec.lotStep} min={0.0001} max={100} onChange={(v) => p.setSpec({ lotStep: v })} />
+              {p.spec.quoteName && (
+                <NumberField label={`Dollars per ${p.spec.quoteName}`} unit="$" value={p.spec.quoteUsd ?? 1} min={0.000001} max={1000} onChange={(v) => p.setSpec({ quoteUsd: v })} />
+              )}
             </div>
+            {p.spec.quoteName && <span className="hint">Prices here are in {p.spec.quoteName}, so dollars use this rate. About 0.0067 when USD/JPY is 150.</span>}
             <span className="hint">Starting values. Check them in your MT5 app: open the market and tap Specification.</span>
           </details>
         </div>

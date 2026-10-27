@@ -10,7 +10,12 @@ export interface DataInfo {
   pipSize: number | null;
   /** Why the history is shorter than asked, if it is. */
   shortBy: string | null;
+  /** The related market loaded for the SMT check, if any, and a note when it couldn't be. */
+  smt: { name: string; ok: boolean } | null;
 }
+
+/** Candle columns, oldest first. */
+export interface Columns { t: Float64Array; o: Float64Array; h: Float64Array; l: Float64Array; c: Float64Array }
 
 export interface MatterRow {
   key: string;
@@ -28,6 +33,7 @@ export type ToWorker =
       type: "series"; job: number; marketId: string;
       t: Float64Array; o: Float64Array; h: Float64Array; l: Float64Array; c: Float64Array;
       pipSize: number | null; shortBy: string | null;
+      partner: Columns | null; smt: { name: string; ok: boolean } | null;
     }
   | { type: "run"; job: number; cfg: Config; matters: boolean }
   | { type: "candles"; job: number; from: number; to: number };

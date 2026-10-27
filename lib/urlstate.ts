@@ -1,23 +1,25 @@
 // Keeps the chosen market and rules in the address, so a setup can be shared.
-import { DEFAULT_CONFIG, type Config, type Grade, type LevelKind, type Session, type Tf } from "../engine";
+import { DEFAULT_CONFIG, type Config, type CrtTf, type LevelKind, type Session, type Tf } from "../engine";
 import { DEFAULT_MARKET } from "./markets";
 
 export interface Saved { marketId?: string; months?: number; cfg: Partial<Config> }
 
 const ONE_OF = {
   bias: ["off", "weeklyCrt", "structure", "premiumDiscount", "majority", "allAgree"],
+  entry: ["qm", "shift"],
   zone: ["obFvg", "fvg", "ob", "off"],
   timing: ["sameDay", "nextDay", "either"],
   stop: ["sweep", "pullback", "ob"],
   dayStart: ["utc", "nyClose"],
-  lowRGrade: ["A+", "A", "B", "C", "any"]
+  freshFrom: ["candle1", "candle2"]
 } as const;
-const FLAGS = { half: "partialAtTp1", day3: "timeStop", news: "newsGuard", key: "requireKeyLevel" } as const;
-const NUMBERS = { swing: "swing15", minr: "minR", fullr: "fullR", maxr: "maxR", perday: "maxPerDay" } as const;
+const FLAGS = { half: "partialAtTp1", day3: "timeStop", news: "newsGuard", key: "requireKeyLevel", deep: "deeperSweeps", mid: "midCancels" } as const;
+const NUMBERS = { swing: "swing15", minr: "minR", fullr: "fullR", lowpct: "lowRPct", maxr: "maxR", perday: "maxPerDay", window: "entryWindow" } as const;
 const LISTS = {
+  crt: { key: "crt", allowed: ["day", "week"] as CrtTf[] },
   sess: { key: "sessions", allowed: ["asian", "london", "newyork"] as Session[] },
   ktf: { key: "keyLevelTfs", allowed: ["h4", "d1", "w1"] as Tf[] },
-  kind: { key: "keyLevelKinds", allowed: ["ob", "breaker", "fvg"] as LevelKind[] }
+  kind: { key: "keyLevelKinds", allowed: ["old", "ob", "fvg", "rb", "breaker"] as LevelKind[] }
 } as const;
 
 export function readHash(hash: string): Saved {
@@ -25,7 +27,7 @@ export function readHash(hash: string): Saved {
   const cfg: Record<string, unknown> = {};
   for (const [key, allowed] of Object.entries(ONE_OF)) {
     const v = q.get(key);
-    if (v && (allowed as readonly string[]).includes(v)) cfg[key] = v as Grade;
+    if (v && (allowed as readonly string[]).includes(v)) cfg[key] = v;
   }
   for (const [short, key] of Object.entries(FLAGS)) {
     const v = q.get(short);
@@ -37,7 +39,9 @@ export function readHash(hash: string): Saved {
   }
   for (const [short, { key, allowed }] of Object.entries(LISTS)) {
     const v = q.get(short);
-    if (v !== null) cfg[key] = v.split(",").filter((x) => (allowed as readonly string[]).includes(x));
+    if (v === null) continue;
+    const list = v.split(",").filter((x) => (allowed as readonly string[]).includes(x));
+    if (list.length || key === "sessions") cfg[key] = list;
   }
   for (const [short, key] of [["spread", "spread"], ["buf", "stopBuffer"]] as const) {
     const v = Number(q.get(short));

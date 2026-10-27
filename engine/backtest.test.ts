@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gradeAtLeast, gradeOf, inKillzone, prepare, runBacktest } from "./backtest";
+import { inKillzone, prepare, runBacktest, scoreOf } from "./backtest";
 import { DEFAULT_CONFIG, type Config, type Series } from "./types";
 
 // Build days of 15-minute candles from Mon 8 Jan 2024 (UTC).
@@ -23,10 +23,13 @@ function make(at: Record<string, OHLC>, days = 3): Series {
   return { n: s.t.length, ...s };
 }
 
-// The first version's rules: stop at the sweep, half at 50%, no key level or R limits.
+// The first version's rules: daily CRTs, entry on the shift close during candle 2 or 3, stop at
+// the sweep, half at 50%, no key level or R limits, and a deeper sweep or the 50% level cancels.
 const CLASSIC: Partial<Config> = {
+  crt: ["day"], entry: "shift", timing: "either", entryWindow: 1, deeperSweeps: false, midCancels: true,
+  freshFrom: "candle2", keyLevelKinds: ["ob", "breaker", "fvg"],
   bias: "off", newsGuard: false, requireKeyLevel: false, stop: "sweep", stopBuffer: 0,
-  partialAtTp1: true, minR: 0, fullR: 0, maxR: 1000, maxPerDay: 0
+  partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0
 };
 const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, ...CLASSIC, ...over });
 const run = (s: Series, c: Config) => runBacktest(prepare(s, c), c);
@@ -306,7 +309,7 @@ describe("the sweep has to reach a higher-timeframe key level", () => {
     const res = run(make(keyBuy, 4), keyCfg());
     const tr = res.trades.find((x) => x.sweepDayT === WED);
     expect(tr?.keyLevel).toMatchObject({ tf: "h4", kind: "fvg", top: 1.099, bottom: 1.098 });
-    expect(tr?.conf.keyLevel).toBe(true);
+    expect(tr?.conf.strongKey).toBe(false); // a 4-hour level, not a daily or weekly one
     expect(res.funnel.keyLevels).toBeGreaterThanOrEqual(1);
   });
   it("does nothing when the sweep stops short of it", () => {
@@ -351,18 +354,23 @@ describe("stops beyond the 1-hour order block, and the R limits", () => {
     expect(tr.tp2).toBeCloseTo(1.1046 + 3 * 0.0014, 6);
     expect(tr.r).toBeCloseTo(3, 6);
   });
-  it("needs the top grade between 2R and the full R", () => {
-    expect(run(make(zoneBuy), rCfg({ stop: "pullback", minR: 2, fullR: 4, lowRGrade: "A+" })).trades.length).toBe(0);
-    expect(run(make(zoneBuy), rCfg({ stop: "pullback", minR: 2, fullR: 4, lowRGrade: "any" })).trades.length).toBe(1);
+  it("needs a high enough percent between 2R and the full R", () => {
+    expect(run(make(zoneBuy), rCfg({ stop: "pullback", minR: 2, fullR: 4, lowRPct: 100 })).trades.length).toBe(0);
+    expect(run(make(zoneBuy), rCfg({ stop: "pullback", minR: 2, fullR: 4, lowRPct: 0 })).trades.length).toBe(1);
   });
 });
 
-describe("grading", () => {
-  it("scores confluences into grades", () => {
-    expect([10, 9, 8, 7, 6, 5, 0].map((n) => gradeOf(n))).toEqual(["A+", "A", "A", "B", "B", "C", "C"]);
-    expect(gradeAtLeast("A", "A+")).toBe(false);
-    expect(gradeAtLeast("A+", "A")).toBe(true);
-    expect(gradeAtLeast("C", "any")).toBe(true);
+describe("the checklist", () => {
+  const none = { weeklyBias: false, weeklyCrt: false, mtf: false, discount: false, strongKey: false, obFvg: false, fib: false, gann: false, ifvg: false, killzone: false, displacement: false, smt: false, oldLiquidity: false };
+  it("counts direction checks double, out of 18", () => {
+    expect(scoreOf(none)).toEqual({ points: 0, maxPoints: 18, pct: 0 });
+    expect(scoreOf({ ...none, weeklyBias: true })).toMatchObject({ points: 2, maxPoints: 18 });
+    expect(scoreOf({ ...none, fib: true, gann: true })).toMatchObject({ points: 2, maxPoints: 18 });
+    expect(scoreOf({ ...none, weeklyBias: true, mtf: true, discount: true, strongKey: true, weeklyCrt: true, obFvg: true, fib: true, gann: true, ifvg: true, killzone: true, displacement: true, smt: true, oldLiquidity: true }).pct).toBe(100);
+  });
+  it("leaves out checks that can't apply", () => {
+    expect(scoreOf({ ...none, smt: null, weeklyBias: true })).toMatchObject({ points: 2, maxPoints: 17 });
+    expect(scoreOf({ ...none, smt: null, weeklyCrt: null, killzone: true })).toMatchObject({ points: 1, maxPoints: 15 });
   });
   it("knows the London and New York killzones in New York time", () => {
     const at = (m: number, d: number, h: number, min = 0) => Date.UTC(2024, m, d, h, min) / 1000;
@@ -373,8 +381,10 @@ describe("grading", () => {
   });
   it("marks what the zone trade had going for it", () => {
     const tr = run(make(zoneBuy), cfg({ zone: "obFvg" })).trades[0];
-    expect(tr.conf).toMatchObject({ displacement: true, obFvg: false, gann: false, fib: false, killzone: false, keyLevel: false });
-    expect(tr.grade).toBe("C");
+    expect(tr.conf).toMatchObject({ displacement: true, obFvg: false, gann: false, fib: false, killzone: false, strongKey: false, smt: null });
+    expect(tr.maxPoints).toBe(17); // no partner market, so SMT is left out
+    expect(tr.points).toBe(1);
+    expect(tr.pct).toBeCloseTo(100 / 17, 6);
   });
   it("sees a pullback into the 50 to 78.6% zone of the leg", () => {
     // leg 1.0980 to 1.1042; a dip to 1.1010 is 52% back

@@ -292,10 +292,30 @@ dialog.sheet[open] { animation: rise 0.22s ease-out; }
 .now-item { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; align-items: start; padding: 12px; border-radius: 10px; background: var(--raise); }
 .now-item.hot { box-shadow: inset 3px 0 0 var(--gold); }
 .now-item b { display: block; font-weight: 650; margin-bottom: 2px; }
-.now-item span:not(.dir) { display: block; font-size: 14px; color: var(--fog); }
+.now-item > div > span { display: block; font-size: 14px; color: var(--fog); }
 .now-item .dir { margin-top: 2px; }
 .more-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .more-row .btn { flex: 1; min-width: 140px; }
 .more-row .btn.on { border-color: var(--gold); color: var(--gold); }
 .drawer { display: flex; flex-direction: column; gap: 28px; }
 .page.simple .sec-verdict h2.sec { margin-bottom: 10px; }
+.now-group { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.now-tf { margin: 0 0 6px; font-size: 13px; font-weight: 650; color: var(--gold); letter-spacing: 0.02em; }
+.now-note { margin: 14px 0 0; font-size: 13px; color: var(--dim); }
+.call { margin-top: 10px; }
+.call-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.now-item .call-line b { display: inline; margin: 0; font-size: 18px; font-weight: 700; }
+.call-line .pos { color: var(--up); }
+.call-line .neg { color: var(--down); }
+.call-other { font-size: 14px; color: var(--fog); }
+.call-bar { height: 6px; border-radius: 3px; overflow: hidden; margin-top: 6px; }
+.call-bar.sell { background: rgba(99, 183, 156, 0.28); }
+.call-bar.buy { background: rgba(226, 114, 95, 0.28); }
+.call-bar i { display: block; height: 100%; }
+.call-bar i.buy { background: var(--up); }
+.call-bar i.sell { background: var(--down); }
+.call-checks summary { cursor: pointer; margin-top: 10px; font-size: 13px; color: var(--fog); min-height: 32px; display: flex; align-items: center; }
+.call-checks[open] summary { color: var(--paper); }
+.call-checks .checks { margin-top: 6px; font-size: 13px; }
+.checks small { color: var(--dim); }
+.checks .x2 { color: var(--gold); }

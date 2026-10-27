@@ -63,7 +63,9 @@ describe("which key level a sweep reached", () => {
   // a buy: candle 1's low is 1.098, the sweep went to 1.095 at t = 5000 on a day starting at 4000
   const find = (list: Level[], over: { kinds?: Level["kind"][]; tfs?: Level["tf"][]; sweep?: number; now?: number; slack?: number } = {}) => {
     const book = levelBook({ h4: list.filter((z) => z.tf === "h4"), d1: list.filter((z) => z.tf === "d1"), w1: list.filter((z) => z.tf === "w1") });
-    return keyLevelFor(book, over.tfs ?? [...all.tfs], over.kinds ?? [...all.kinds], 1, 5000, over.sweep ?? 1.095, 1.098, 4000, over.now ?? 6000, over.slack ?? 0);
+    return keyLevelFor(book, over.tfs ?? [...all.tfs], over.kinds ?? [...all.kinds], {
+      dir: 1, sweepT: 5000, sweepPrice: over.sweep ?? 1.095, edge: 1.098, bodyEdge: 1.099, freshFrom: 4000, now: over.now ?? 6000, slack: over.slack ?? 0
+    });
   };
   it("accepts a fresh, unbroken zone past candle 1's low that the sweep reached", () => expect(find([L({})])).not.toBeNull());
   it("ignores a zone that formed after the sweep", () => expect(find([L({ knownAt: 5500 })])).toBeNull());

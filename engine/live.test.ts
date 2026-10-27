@@ -28,8 +28,10 @@ function upTo(s: Series, key: string): Series {
   return { n, t: sl(s.t), o: sl(s.o), h: sl(s.h), l: sl(s.l), c: sl(s.c) };
 }
 const CLASSIC: Partial<Config> = {
+  crt: ["day"], entry: "shift", timing: "either", entryWindow: 1, deeperSweeps: false, midCancels: true,
+  freshFrom: "candle2", keyLevelKinds: ["ob", "breaker", "fvg"],
   bias: "off", newsGuard: false, requireKeyLevel: false, stop: "sweep", stopBuffer: 0,
-  partialAtTp1: true, minR: 0, fullR: 0, maxR: 1000, maxPerDay: 0
+  partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0
 };
 const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, ...CLASSIC, ...over });
 const live = (s: Series, c: Config) => runBacktest(prepare(s, c), c).live!;
