@@ -2,7 +2,8 @@
 import { CONFLUENCES, DEFAULT_CONFIG, type ConfKey, type Config, type CrtTf, type LevelKind, type Session, type Tf } from "../engine";
 import { DEFAULT_MARKET } from "./markets";
 
-export interface Saved { marketId?: string; months?: number; cfg: Partial<Config> }
+export type View = "one" | "all";
+export interface Saved { marketId?: string; view?: View; cfg: Partial<Config> }
 
 const ONE_OF = {
   bias: ["off", "weeklyCrt", "structure", "premiumDiscount", "majority", "allAgree"],
@@ -48,19 +49,18 @@ export function readHash(hash: string): Saved {
     const v = Number(q.get(short));
     if (q.has(short) && Number.isFinite(v) && v >= 0) cfg[key] = v;
   }
-  const months = Number(q.get("h"));
   return {
     marketId: q.get("m") ?? undefined,
-    months: [3, 6, 12].includes(months) ? months : undefined,
+    view: q.get("v") === "all" ? "all" : undefined,
     cfg: cfg as Partial<Config>
   };
 }
 
-export function writeHash(s: { marketId: string; months: number; cfg: Config; spreadDefault: number; bufferDefault: number }) {
+export function writeHash(s: { marketId: string; view?: View; cfg: Config; spreadDefault: number; bufferDefault: number }) {
   const q = new URLSearchParams();
   const c = s.cfg as unknown as Record<string, unknown>, d = DEFAULT_CONFIG as unknown as Record<string, unknown>;
   if (s.marketId !== DEFAULT_MARKET) q.set("m", s.marketId);
-  if (s.months !== 12) q.set("h", String(s.months));
+  if (s.view === "all") q.set("v", "all");
   for (const key of Object.keys(ONE_OF)) if (c[key] !== d[key]) q.set(key, String(c[key]));
   for (const [short, key] of Object.entries(FLAGS)) if (c[key] !== d[key]) q.set(short, c[key] ? "1" : "0");
   for (const [short, key] of Object.entries(NUMBERS)) if (c[key] !== d[key]) q.set(short, String(c[key]));

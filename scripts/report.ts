@@ -26,7 +26,7 @@ const rows: [string, Partial<Config>][] = [
   ["  key levels: OB and FVG only", { keyLevelKinds: ["ob", "fvg"] }],
   ["  key level fresh before candle 2", { freshFrom: "candle2" }],
   ["  a deeper sweep cancels", { deeperSweeps: false }],
-  ["  entries from candle 2", { timing: "either" }],
+  ["  entries from candle 3 only", { timing: "nextDay" }],
   ["  any checklist percent", { minPct: 0 }],
   ["  lowest percent 50", { minPct: 50 }],
   ["  no minimum R", { minR: 0, fullR: 0 }],

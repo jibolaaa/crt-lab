@@ -19,7 +19,7 @@ const SHORT: Record<Trade["reason"], string> = {
 };
 
 /** How a trade ended, in plain words. The time limit closes trades at the end of the day (week) after the entry's. */
-const exitText = (t: Trade) =>
+export const exitText = (t: Pick<Trade, "reason" | "tf">) =>
   t.reason === "time" ? `Closed at the end of the next ${t.tf === "week" ? "week" : "day"}` : SHORT[t.reason];
 
 const tone = (r: number) => (r > 0.005 ? "pos" : r < -0.005 ? "neg" : "flat");

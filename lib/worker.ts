@@ -1,9 +1,12 @@
 /// <reference lib="webworker" />
 // Runs the engine off the main thread so the page stays smooth on a phone.
+// It keeps every market's candles it has been given, so switching markets, or
+// running the rules on all of them, doesn't load anything twice.
 import { prepare, runBacktest, seriesFromBuffer, type Config, type Prepared, type Series } from "../engine";
 import { candleSeconds } from "../engine/htf";
 import { variantsFor } from "./matters";
-import type { FromWorker, MatterRow, TargetRow, ToWorker } from "./protocol";
+import type { FromWorker, MatterRow, StoredInfo, TargetRow, ToWorker } from "./protocol";
+import { toScanRow } from "./scan";
 
 /** The target caps tried in the "Which target?" table. */
 export const CAPS = [2, 3, 4, 5, 6, 8, 10, 1000];
@@ -11,15 +14,37 @@ export const CAPS = [2, 3, 4, 5, 6, 8, 10, 1000];
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 const post = (msg: FromWorker) => ctx.postMessage(msg);
 
-let series: Series | null = null;
-let partner: Series | null = null; // a related market, for the SMT check
-let prepared: { key: string; p: Prepared } | null = null;
+interface Stored { s: Series; pipSize: number | null; shortBy: string | null }
+const store = new Map<string, Stored>();
+/** Prepared candles, by series, related market and the settings that change them. */
+const preparedCache = new Map<string, Prepared>();
+/** The one-market view: which stored candles it reads. */
+let current: { key: string; partnerKey: string | null } | null = null;
 let latestRun = 0;
+let latestGen = 0;
 
-function getPrepared(cfg: Config) {
-  const key = `${cfg.dayStart}|${cfg.weekendClosed}|${cfg.swingWeekly}`;
-  if (!prepared || prepared.key !== key) prepared = { key, p: prepare(series!, cfg, partner) };
-  return prepared.p;
+function infoOf(key: string, e: Stored): StoredInfo {
+  const s = e.s, dt = candleSeconds(s);
+  return { key, count: s.n, dt, from: s.t[0], to: s.t[s.n - 1] + dt, lastClose: s.c[s.n - 1], pipSize: e.pipSize, shortBy: e.shortBy };
+}
+
+function put(key: string, e: Stored) {
+  store.set(key, e);
+  for (const k of [...preparedCache.keys()]) if (k.split("|").slice(0, 2).includes(key)) preparedCache.delete(k);
+}
+
+function preparedFor(key: string, partnerKey: string | null, cfg: Config) {
+  const id = `${key}|${partnerKey ?? ""}|${cfg.dayStart}|${cfg.weekendClosed}|${cfg.swingWeekly}`;
+  let p = preparedCache.get(id);
+  if (!p) {
+    const e = store.get(key);
+    if (!e) throw new Error("Those prices aren't loaded yet.");
+    const partner = partnerKey ? store.get(partnerKey)?.s ?? null : null;
+    if (preparedCache.size > 60) preparedCache.clear(); // keep memory in check
+    p = prepare(e.s, cfg, partner && partner.n ? partner : null);
+    preparedCache.set(id, p);
+  }
+  return p;
 }
 
 const nextTick = () => new Promise((r) => setTimeout(r, 0));
@@ -44,36 +69,37 @@ async function fetchWithProgress(url: string, job: number) {
   return out.buffer;
 }
 
+function useStored(job: number, marketId: string, key: string, partnerKey: string | null, smt: { name: string; ok: boolean } | null) {
+  const e = store.get(key);
+  if (!e || !e.s.n) throw new Error("No prices came back for this market.");
+  current = { key, partnerKey: partnerKey && store.get(partnerKey)?.s.n ? partnerKey : null };
+  const i = infoOf(key, e);
+  post({ type: "loaded", job, info: { marketId, count: i.count, dt: i.dt, from: i.from, to: i.to, lastClose: i.lastClose, pipSize: i.pipSize, shortBy: i.shortBy, smt } });
+}
+
 ctx.onmessage = async (e: MessageEvent<ToWorker>) => {
   const msg = e.data;
   try {
-    if (msg.type === "load" || msg.type === "series") {
-      series = null;
-      partner = null;
-      prepared = null;
-      let pipSize: number | null = null, shortBy: string | null = null;
-      let smt: { name: string; ok: boolean } | null = null;
-      if (msg.type === "load") {
+    if (msg.type === "load") {
+      // the built-in file
+      if (!store.has(msg.key)) {
         post({ type: "progress", job: msg.job, text: "Loading 8 years of prices", fraction: 0 });
-        series = seriesFromBuffer(await fetchWithProgress(msg.url, msg.job));
-      } else {
-        // live candles, loaded by the page from Deriv
-        series = { n: msg.t.length, t: msg.t, o: msg.o, h: msg.h, l: msg.l, c: msg.c };
-        pipSize = msg.pipSize;
-        shortBy = msg.shortBy;
-        const pc = msg.partner;
-        if (pc && pc.t.length) partner = { n: pc.t.length, t: pc.t, o: pc.o, h: pc.h, l: pc.l, c: pc.c };
-        smt = msg.smt;
+        put(msg.key, { s: seriesFromBuffer(await fetchWithProgress(msg.url, msg.job)), pipSize: null, shortBy: null });
       }
-      if (!series.n) throw new Error("No prices came back for this market.");
-      post({
-        type: "loaded", job: msg.job,
-        info: { marketId: msg.marketId, count: series.n, dt: candleSeconds(series), from: series.t[0], to: series.t[series.n - 1] + candleSeconds(series), lastClose: series.c[series.n - 1], pipSize, shortBy, smt }
-      });
+      useStored(msg.job, msg.marketId, msg.key, null, null);
+    } else if (msg.type === "store") {
+      // live candles, loaded by the page from Deriv
+      const s: Series = { n: msg.t.length, t: msg.t, o: msg.o, h: msg.h, l: msg.l, c: msg.c };
+      put(msg.key, { s, pipSize: msg.pipSize, shortBy: msg.shortBy });
+      if (!s.n) throw new Error("No prices came back for this market.");
+      post({ type: "stored", job: msg.job, info: infoOf(msg.key, store.get(msg.key)!) });
+    } else if (msg.type === "use") {
+      useStored(msg.job, msg.marketId, msg.key, msg.partnerKey, msg.smt);
     } else if (msg.type === "run") {
       latestRun = msg.job;
-      if (!series) throw new Error("Load a market first.");
-      const p = getPrepared(msg.cfg);
+      if (!current) throw new Error("Load a market first.");
+      const cur = current;
+      const p = preparedFor(cur.key, cur.partnerKey, msg.cfg);
       const result = runBacktest(p, msg.cfg);
       post({ type: "result", job: msg.job, result });
       if (!msg.matters) return;
@@ -82,7 +108,7 @@ ctx.onmessage = async (e: MessageEvent<ToWorker>) => {
         await nextTick();
         if (latestRun !== msg.job) return; // newer rules arrived
         const cfg = { ...msg.cfg, ...v.change };
-        const r = runBacktest(getPrepared(cfg), cfg);
+        const r = runBacktest(preparedFor(cur.key, cur.partnerKey, cfg), cfg);
         rows.push({ key: v.key, label: v.label, trades: r.all.trades, totalR: r.all.totalR, avgR: r.all.avgR, lateTrades: r.unseen.trades, lateR: r.unseen.totalR });
       }
       post({ type: "matters", job: msg.job, rows });
@@ -91,16 +117,27 @@ ctx.onmessage = async (e: MessageEvent<ToWorker>) => {
         await nextTick();
         if (latestRun !== msg.job) return;
         const cfg = { ...msg.cfg, maxR: cap };
-        const r = runBacktest(getPrepared(cfg), cfg);
+        const r = runBacktest(preparedFor(cur.key, cur.partnerKey, cfg), cfg);
         targets.push({
           cap, trades: r.all.trades, winRate: r.all.winRate, avgR: r.all.avgR, totalR: r.all.totalR,
           seenR: r.seen.totalR, lateTrades: r.unseen.trades, lateR: r.unseen.totalR
         });
       }
       post({ type: "targets", job: msg.job, rows: targets });
+    } else if (msg.type === "scan") {
+      // All markets: each market's result as soon as it's ready; a newer run (gen) stops older ones
+      latestGen = Math.max(latestGen, msg.gen);
+      for (const m of msg.markets) {
+        await nextTick();
+        if (msg.gen < latestGen) return;
+        const e = store.get(m.key);
+        if (!e || !e.s.n) continue;
+        const r = runBacktest(preparedFor(m.key, m.partnerKey, m.cfg), m.cfg);
+        post({ type: "scanRow", job: msg.job, gen: msg.gen, row: toScanRow(m.marketId, infoOf(m.key, e), r) });
+      }
     } else if (msg.type === "candles") {
-      if (!series) throw new Error("Load a market first.");
-      const s = series;
+      if (!current) throw new Error("Load a market first.");
+      const s = store.get(current.key)!.s;
       let i0 = 0, i1 = s.n;
       while (i0 < s.n && s.t[i0] < msg.from) i0++;
       i1 = i0;

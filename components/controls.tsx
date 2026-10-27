@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useId, useState } from "react";
 import type { ConfKey, Config, CrtTf, LevelKind, Session, Tf } from "../engine";
-import { HISTORY, MARKETS, type Market, type Spec } from "../lib/markets";
+import { MARKETS, type Market, type Spec } from "../lib/markets";
 import type { MoneyCfg } from "../lib/money";
 import type { DataInfo } from "../lib/protocol";
 import { fmtDate, fmtInt } from "../lib/format";
@@ -15,9 +15,11 @@ interface Props {
   setMoney: (m: Partial<MoneyCfg>) => void;
   spec: Spec;
   setSpec: (s: Partial<Spec>) => void;
+  /** "all": the rules only, since spread, stop room and lot sizes differ per market. */
+  scope?: "one" | "all";
 }
 
-const GROUPS = [...new Set(MARKETS.map((m) => m.group))];
+export const GROUPS = [...new Set(MARKETS.map((m) => m.group))];
 const MUST_OPTIONS: [ConfKey, string][] = [
   ["weeklyBias", "Weekly structure"], ["weeklyCrt", "Weekly CRT"], ["mtf", "4H and daily structure"],
   ["discount", "Premium/discount"], ["strongKey", "Daily or weekly level"], ["obFvg", "OB and FVG overlap"],
@@ -27,9 +29,7 @@ const MUST_OPTIONS: [ConfKey, string][] = [
 
 interface MarketProps {
   market: Market;
-  months: number;
   onMarket: (id: string) => void;
-  onMonths: (m: number) => void;
   data: DataInfo | null;
   loading: { text: string; fraction?: number } | null;
   loadError: string | null;
@@ -49,11 +49,6 @@ export function MarketBar(p: MarketProps) {
             </optgroup>
           ))}
         </select>
-        {m.source === "deriv" && (
-          <select aria-label="How far back" className="select months" value={p.months} onChange={(e) => p.onMonths(Number(e.target.value))}>
-            {HISTORY.map((h) => <option key={h.months} value={h.months}>{h.label}</option>)}
-          </select>
-        )}
       </div>
       {p.loading && (
         <div className="progress" role="status">
@@ -71,11 +66,12 @@ export function MarketBar(p: MarketProps) {
       {p.data && !p.loading && (
         <p className="data-meta">
           {m.source === "deriv"
-            ? <>Live from Deriv: {fmtInt(p.data.count)} {p.data.dt <= 300 ? "five" : "fifteen"}-minute candles since {fmtDate(p.data.from)}. <button className="linkbtn" onClick={p.onRetry}>Refresh</button></>
+            ? <>Live from Deriv: {fmtInt(p.data.count)} {p.data.dt <= 300 ? "five" : "fifteen"}-minute candles since {fmtDate(p.data.from)}, as far back as Deriv sends. <button className="linkbtn" onClick={p.onRetry}>Refresh</button></>
             : <>Built in: 8 years of EUR/USD, 2014 to 2021. Good for testing, but too old for right now.</>}
         </p>
       )}
-      {p.data?.shortBy && !p.loading && <p className="warn">{p.data.shortBy} Testing what loaded.</p>}
+      {p.data?.shortBy?.startsWith("The connection") && !p.loading && <p className="warn">{p.data.shortBy} Testing what loaded.</p>}
+      {m.random && <p className="data-meta">Deriv makes this market&apos;s prices with a random number generator, and says any patterns in its history are coincidental.</p>}
       {p.data?.smt && !p.loading && (
         <p className="data-meta">{p.data.smt.ok ? `SMT is checked against ${p.data.smt.name}.` : `SMT is left out: ${p.data.smt.name} didn't load.`}</p>
       )}
@@ -200,11 +196,17 @@ export function Settings(p: Props) {
             options={[["ob", "Beyond the order block"], ["sweep", "Beyond the sweep"], ["pullback", c.entry === "qm" ? "Beyond the A-shape" : "Beyond the pullback"]]}
             hint="The order block is on the 1-hour chart, or the 4-hour for weekly CRTs."
           />
-          <div className="numrow">
-            <NumberField label="Stop buffer" unit={m.unitName} value={c.stopBuffer / m.unit} min={0} max={1e6} onChange={(v) => u({ stopBuffer: v * m.unit })} />
-            <NumberField label="Spread" unit={m.unitName} value={c.spread / m.unit} min={0} max={1e6} onChange={(v) => u({ spread: v * m.unit })} />
-          </div>
-          <span className="hint">The target is the far end of candle 1. The spread is an estimate: copy yours from the MT5 app.</span>
+          {p.scope !== "all" ? (
+            <>
+              <div className="numrow">
+                <NumberField label="Stop buffer" unit={m.unitName} value={c.stopBuffer / m.unit} min={0} max={1e6} onChange={(v) => u({ stopBuffer: v * m.unit })} />
+                <NumberField label="Spread" unit={m.unitName} value={c.spread / m.unit} min={0} max={1e6} onChange={(v) => u({ spread: v * m.unit })} />
+              </div>
+              <span className="hint">The target is the far end of candle 1. The spread is an estimate: copy yours from the MT5 app.</span>
+            </>
+          ) : (
+            <span className="hint">The target is the far end of candle 1. Each market uses its own usual spread and stop room.</span>
+          )}
           <div className="numrow" style={{ marginTop: 14 }}>
             <NumberField label="Skip under" unit="R" value={c.minR} min={0} max={100} onChange={(v) => u({ minR: v })} />
             <NumberField label="Cap the target at" unit="R" value={c.maxR >= 1000 ? 0 : c.maxR} min={0} max={100} onChange={(v) => u({ maxR: v > 0 ? v : 1000 })} />
@@ -224,7 +226,7 @@ export function Settings(p: Props) {
         </div>
       </section>
 
-      <section className="sec-account" aria-labelledby="acct-h">
+      {p.scope !== "all" && <section className="sec-account" aria-labelledby="acct-h">
         <h2 className="sec" id="acct-h">Your account</h2>
         <div className="panel">
           <div className="numrow">
@@ -256,7 +258,7 @@ export function Settings(p: Props) {
             <span className="hint">Starting values. Check them in your MT5 app: open the market and tap Specification.</span>
           </details>
         </div>
-      </section>
+      </section>}
     </>
   );
 }

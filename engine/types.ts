@@ -132,7 +132,7 @@ export const DEFAULT_CONFIG: Config = {
   bias: "off",
   zone: "any",
   zoneInKiller: true,
-  timing: "nextDay",
+  timing: "either", // entries in candle 2 (after the sweep) or candle 3
   entryWindow: 3,
   deeperSweeps: true,
   midCancels: false,

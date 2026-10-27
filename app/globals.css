@@ -335,3 +335,15 @@ dialog.sheet[open] { animation: rise 0.22s ease-out; }
 .proj-line b.neg { color: var(--down); }
 .proj-note { margin: 8px 0 0; font-size: 12.5px; color: var(--dim); }
 .sec-targets tr.best th, .sec-targets tr.best td { background: var(--gold-soft); }
+
+/* ---------- one market / all markets ---------- */
+.view-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border: 1px solid var(--rule); border-radius: 12px; background: var(--panel); }
+.view-switch button { min-height: 44px; border: 0; border-radius: 9px; background: transparent; color: var(--fog); font: inherit; font-weight: 600; cursor: pointer; }
+.view-switch button.on { background: var(--gold-soft); color: var(--paper); box-shadow: inset 0 0 0 1px var(--gold); }
+.view-switch button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.market-bar h2.sub { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--gold); letter-spacing: 0.01em; }
+.all-pick { margin: 0; padding: 0; border: 0; min-width: 0; }
+.mk-link { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; text-align: left; }
+.now-item .mk-link { display: block; margin: 0 0 3px; font-size: 13px; font-weight: 650; color: var(--gold); letter-spacing: 0.02em; }
+table.grid td .mk-link { font-size: 15px; color: var(--paper); text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; }
+.mk-link:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 3px; }

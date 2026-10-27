@@ -63,6 +63,15 @@ describe("loading candles from Deriv", () => {
     expect(res.candles.length).toBe(600);
   });
 
+  it("stops at the candle cap, keeping the newest candles", async () => {
+    const all = candles(23000);
+    const { make, log } = server({ candles: all });
+    const res = await loadDerivCandles("frxEURUSD", { from: START - 365 * 86400, maxCandles: 12000, makeSocket: make });
+    expect(log.length).toBe(3); // 3 pages of 5,000 reach the cap
+    expect(res.candles.length).toBe(15000);
+    expect(res.candles.at(-1)!.epoch).toBe(all.at(-1)!.epoch);
+  });
+
   it("says so when Deriv runs out of history first", async () => {
     const all = candles(6000);
     const { make } = server({ candles: all });

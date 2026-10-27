@@ -24,6 +24,8 @@ export interface LoadOptions {
   /** Candle length in seconds: 300 for 5-minute, 900 for 15-minute (the default). */
   granularity?: number;
   onProgress?: (count: number, oldest: number) => void;
+  /** Stop once this many candles have loaded, to keep a phone's memory in check. */
+  maxCandles?: number;
   makeSocket?: (url: string) => SocketLike;
   /** Wait between retries after Deriv asks to slow down (ms). */
   retryWait?: number;
@@ -142,6 +144,7 @@ export async function loadDerivCandles(symbol: string, opts: LoadOptions): Promi
         opts.onProgress?.(byEpoch.size, oldest);
         if (oldest <= opts.from) break;
         if (got === 0) { shortBy = "Deriv has no older candles for this market."; break; }
+        if (opts.maxCandles && byEpoch.size >= opts.maxCandles) break;
         end = String(oldest - 1);
       }
     } catch (e) {

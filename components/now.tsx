@@ -3,17 +3,12 @@ import { CONFLUENCES, WEIGHT, type Call, type Config, type CrtTf, type LiveSetup
 import type { Market } from "../lib/markets";
 import { CONF_LABEL, CRT_LABEL, TF_LABEL, kindName } from "../lib/confluences";
 import { fmtDay, fmtPrice, fmtR, fmtTime } from "../lib/format";
+import { pickSetups as pick } from "../lib/live";
 
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const weekday = (t: number) => WEEKDAY[new Date(t * 1000).getUTCDay()];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const dayMonth = (t: number) => `${new Date(t * 1000).getUTCDate()} ${MONTHS[new Date(t * 1000).getUTCMonth()]}`;
-
-// what needs watching first: a running trade, a limit, an entry about to happen, then the rest
-const RANK: Record<LiveSetup["stage"], number> = {
-  entered: 0, limit: 1, touched: 2, armed: 3, zone: 4, swept: 5, key: 6, waiting: 7, noKey: 8, ended: 9, blocked: 10
-};
-const rank = (s: LiveSetup) => (s.stage === "entered" && s.trade?.reason !== "end" ? 8.5 : RANK[s.stage]);
 
 /** What today's CRTs look like under the current rules, at the last closed candle. */
 export function Now({ result, market, cfg, loading, dt = 900 }: { result: RunResult | null; market: Market; cfg: Config; loading: boolean; dt?: number }) {
@@ -57,7 +52,7 @@ export function Now({ result, market, cfg, loading, dt = 900 }: { result: RunRes
             {rows.length === 0 && <p className="now-empty">Not enough prices yet to read this one.</p>}
             <ul className="now-list">
               {rows.map((s, i) => {
-                const { title, text, hot } = describe(s, px, cfg, dt);
+                const { title, text, hot } = describeSetup(s, px, cfg, dt);
                 return (
                   <li key={i} className={`now-item${hot ? " hot" : ""}`}>
                     <span className={`dir ${s.dir === 1 ? "buy" : "sell"}`}>{s.dir === 1 ? "Buy" : "Sell"}</span>
@@ -78,18 +73,7 @@ export function Now({ result, market, cfg, loading, dt = 900 }: { result: RunRes
   );
 }
 
-/** One row per direction: the setup furthest along, plus any trade still running. */
-function pick(list: LiveSetup[]) {
-  const sorted = [...list].sort((a, b) => rank(a) - rank(b) || b.age - a.age);
-  const out: LiveSetup[] = [];
-  for (const s of sorted) {
-    const running = s.stage === "entered" && s.trade?.reason === "end";
-    if (running || !out.some((x) => x.dir === s.dir && !(x.stage === "entered" && x.trade?.reason === "end"))) out.push(s);
-  }
-  return out.sort((a, b) => rank(a) - rank(b));
-}
-
-function CallView({ call, dir }: { call: Call; dir: 1 | -1 }) {
+export function CallView({ call, dir }: { call: Call; dir: 1 | -1 }) {
   const me = Math.round(call.pct), other = 100 - me;
   const side = dir === 1 ? "Buy" : "Sell", otherSide = dir === 1 ? "Sell" : "Buy";
   return (
@@ -126,7 +110,8 @@ export function Checklist({ conf }: { conf: Call["conf"] }) {
   );
 }
 
-function describe(s: LiveSetup, px: (x: number) => string, cfg: Config, dt: number): { title: string; text: string; hot?: boolean } {
+/** What a live setup is waiting for, in plain words. */
+export function describeSetup(s: LiveSetup, px: (x: number) => string, cfg: Config, dt: number): { title: string; text: string; hot?: boolean } {
   const long = s.dir === 1;
   const side = long ? "low" : "high";
   const edge = long ? s.rangeLow : s.rangeHigh;
