@@ -259,7 +259,8 @@ export function Funnel({ result, cfg }: { result: RunResult | null; cfg: Config 
     f.skippedPastMid ? `${fmtInt(f.skippedPastMid)} past the 50% level` : "",
     f.skippedLowR ? `${fmtInt(f.skippedLowR)} with the target too close in R` : "",
     f.skippedDailyCap ? `${fmtInt(f.skippedDailyCap)} over the daily limit` : "",
-    f.skippedOverlap ? `${fmtInt(f.skippedOverlap)} while already in a trade the same way` : ""
+    f.skippedOverlap ? `${fmtInt(f.skippedOverlap)} while already in a trade the same way` : "",
+    f.skippedChecks ? `${fmtInt(f.skippedChecks)} short of your must-have checks or lowest percent` : ""
   ].filter(Boolean);
   items.push({ label: "Trades taken", n: f.entries, side: skipped.length ? `Skipped at the entry: ${skipped.join(", ")}.` : undefined });
   return (

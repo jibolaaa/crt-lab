@@ -21,7 +21,7 @@ export function Now({ result, market, cfg, loading, dt = 900 }: { result: RunRes
     return (
       <section className="now" aria-labelledby="now-h">
         <h2 className="sec" id="now-h">Right now</h2>
-        <p className="now-empty">This needs live prices. Pick a market from Deriv above, like Volatility 75 or Gold.</p>
+        <p className="now-empty">This needs live prices. Pick a market from Deriv above, like EUR/USD or gold.</p>
       </section>
     );
   }
@@ -210,6 +210,9 @@ function whyText(s: LiveSetup, px: (x: number) => string, cfg: Config) {
     case "alreadyIn": return "Already in a trade the same way.";
     case "pastMid": return "The entry would have been past the 50% level.";
     case "lowR": return `The target was only ${r}R away, under your ${cfg.minR}R minimum.`;
+    case "checks": return cfg.minPct > 0
+      ? `It didn't meet your must-have checks, or your ${cfg.minPct}% lowest percent.`
+      : "It didn't meet your must-have checks.";
     case "lowRPct": return `The target was ${r}R away, and under ${cfg.fullR}R you need ${cfg.lowRPct}% or more of your checklist.`;
     default: return "This setup's time ran out.";
   }

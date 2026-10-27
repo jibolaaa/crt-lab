@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { prepare, runBacktest } from "./backtest";
-import { DEFAULT_CONFIG, type Config, type Series } from "./types";
+import { CONFLUENCES, DEFAULT_CONFIG, type Config, type Series } from "./types";
 
 // Days of 15-minute candles from Mon 8 Jan 2024 (UTC), flat at the previous
 // close unless listed as "day:HH:MM" -> [open, high, low, close].
@@ -296,6 +296,18 @@ describe("a BOS sell on 5-minute candles in a 1-hour zone", () => {
     const sell = l.setups.find((x) => x.dir === -1 && x.fromYesterday);
     expect(sell?.stage).toBe("limit");
     expect(sell?.order?.level).toBeCloseTo(1.1075, 6);
+  });
+  it("skips the trade when a must-have check isn't met, or the percent is under the lowest", () => {
+    const tr = run(s, bos()).trades[0];
+    const unmet = CONFLUENCES.find((k) => tr.conf[k] === false)!;
+    const met = CONFLUENCES.find((k) => tr.conf[k] === true);
+    const skipped = run(s, bos({ mustHave: [unmet] }));
+    expect(skipped.trades.length).toBe(0);
+    expect(skipped.funnel.skippedChecks).toBe(1);
+    if (met) expect(run(s, bos({ mustHave: [met] })).trades.length).toBe(1);
+    expect(run(s, bos({ mustHave: ["smt"] })).trades.length).toBe(1); // no related market: SMT doesn't apply
+    expect(run(s, bos({ minPct: tr.pct + 1 })).trades.length).toBe(0);
+    expect(run(s, bos({ minPct: tr.pct })).trades.length).toBe(1);
   });
   it("needs the zone inside the killer zone", () => {
     // candle 1 closes at 1.1090, so its body top is above the block's bottom

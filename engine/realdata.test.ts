@@ -146,7 +146,7 @@ describe.each(CONFIGS)("real EURUSD, %s", (_name, over) => {
     if (cfg.entry === "qm" || cfg.zone !== "off") {
       expect(f.touches).toBeLessThanOrEqual(f.zones);
       if (cfg.timing === "nextDay") expect(f.zones).toBeLessThanOrEqual(f.closedInside);
-      const after = f.entries + f.skippedNews + f.skippedSession + f.skippedPastMid + f.skippedLowR + f.skippedDailyCap + f.skippedOverlap;
+      const after = f.entries + f.skippedNews + f.skippedSession + f.skippedPastMid + f.skippedLowR + f.skippedDailyCap + f.skippedOverlap + f.skippedChecks;
       expect(after).toBeLessThanOrEqual(f.touches);
     }
   });

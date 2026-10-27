@@ -109,6 +109,10 @@ export interface Config {
   lowRPct: number;
   /** The target never sits more than this many R away (1000 or more = no cap). */
   maxR: number;
+  /** Checks every trade must meet. A check that doesn't apply (SMT with no related market, say) passes. */
+  mustHave: ConfKey[];
+  /** The lowest checklist percent for any trade (0 = any percent). */
+  minPct: number;
   /** Most new trades in one day (0 = no limit). */
   maxPerDay: number;
   dayStart: DayStart;
@@ -147,6 +151,8 @@ export const DEFAULT_CONFIG: Config = {
   fullR: 3,
   lowRPct: 0,
   maxR: 5, // the best cap on the first 70% of EUR/USD 2014 to 2021 with BOS entries (see npm run report)
+  mustHave: [],
+  minPct: 0,
   maxPerDay: 3,
   dayStart: "utc",
   weekendClosed: true,
@@ -253,6 +259,7 @@ export interface Funnel {
   skippedPastMid: number; // the entry was already past the 50% level
   skippedLowR: number; // the target was too close for the rules
   skippedDailyCap: number; // already at the most trades for the day
+  skippedChecks: number; // short of the must-have checks or the lowest percent
   skippedOverlap: number; // already in a trade the same way on the same CRT
 }
 

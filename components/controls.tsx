@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useId, useState } from "react";
-import type { Config, CrtTf, LevelKind, Session, Tf } from "../engine";
+import type { ConfKey, Config, CrtTf, LevelKind, Session, Tf } from "../engine";
 import { HISTORY, MARKETS, type Market, type Spec } from "../lib/markets";
 import type { MoneyCfg } from "../lib/money";
 import type { DataInfo } from "../lib/protocol";
@@ -18,6 +18,12 @@ interface Props {
 }
 
 const GROUPS = [...new Set(MARKETS.map((m) => m.group))];
+const MUST_OPTIONS: [ConfKey, string][] = [
+  ["weeklyBias", "Weekly structure"], ["weeklyCrt", "Weekly CRT"], ["mtf", "4H and daily structure"],
+  ["discount", "Premium/discount"], ["strongKey", "Daily or weekly level"], ["obFvg", "OB and FVG overlap"],
+  ["fib", "Fib 50 to 78.6%"], ["gann", "Gann box"], ["ifvg", "IFVG"], ["killzone", "London or NY open"],
+  ["displacement", "Strong shift candle"], ["smt", "SMT"], ["oldLiquidity", "Old liquidity taken"]
+];
 
 interface MarketProps {
   market: Market;
@@ -97,7 +103,7 @@ export function Settings(p: Props) {
             legend="CRT candles" values={c.crt}
             options={[["day", "Daily"], ["week", "Weekly"]] as [CrtTf, string][]}
             onChange={(v, on) => u({ crt: toggleIn(c.crt, v, on) })}
-            hint="Daily: the day before is candle 1, entries on 15-minute candles. Weekly: the week before is candle 1, entries on 1-hour candles."
+            hint="Daily: the day before is candle 1, with 1-hour zones and a 5-minute BOS (15-minute on the built-in EUR/USD). Weekly: the week before is candle 1, with 4-hour zones and a 15-minute BOS."
           />
           <Choice
             legend="Weekly bias as a rule" name="bias" value={c.bias} onChange={(v) => u({ bias: v })}
@@ -174,6 +180,18 @@ export function Settings(p: Props) {
           {c.usdNews && (
             <Toggle label="Rest on US jobs report days" hint="No new trades on NFP days. Other red folder news isn't in the calendar yet." checked={c.newsGuard} onChange={(v) => u({ newsGuard: v })} />
           )}
+
+          <hr className="divider" />
+          <h3 className="sub">The checklist</h3>
+          <Multi
+            legend="Must have" values={c.mustHave} options={MUST_OPTIONS}
+            onChange={(v, on) => u({ mustHave: on ? [...c.mustHave.filter((x) => x !== v), v] : c.mustHave.filter((x) => x !== v) })}
+            hint="Trades without these are skipped. The other checks only move the percent. SMT only applies where there's a related market."
+          />
+          <div className="numrow">
+            <NumberField label="Lowest percent" unit="%" value={c.minPct} min={0} max={100} onChange={(v) => u({ minPct: v })} />
+          </div>
+          <span className="hint">Skip trades under this much of the checklist. 0 means any percent.</span>
 
           <hr className="divider" />
           <h3 className="sub">Stop and target</h3>

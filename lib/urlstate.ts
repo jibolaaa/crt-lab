@@ -1,5 +1,5 @@
 // Keeps the chosen market and rules in the address, so a setup can be shared.
-import { DEFAULT_CONFIG, type Config, type CrtTf, type LevelKind, type Session, type Tf } from "../engine";
+import { CONFLUENCES, DEFAULT_CONFIG, type ConfKey, type Config, type CrtTf, type LevelKind, type Session, type Tf } from "../engine";
 import { DEFAULT_MARKET } from "./markets";
 
 export interface Saved { marketId?: string; months?: number; cfg: Partial<Config> }
@@ -14,12 +14,13 @@ const ONE_OF = {
   freshFrom: ["candle1", "candle2"]
 } as const;
 const FLAGS = { half: "partialAtTp1", day3: "timeStop", news: "newsGuard", key: "requireKeyLevel", deep: "deeperSweeps", mid: "midCancels", kz: "zoneInKiller" } as const;
-const NUMBERS = { swing: "swing15", minr: "minR", fullr: "fullR", lowpct: "lowRPct", maxr: "maxR", perday: "maxPerDay", window: "entryWindow" } as const;
+const NUMBERS = { swing: "swing15", minr: "minR", fullr: "fullR", lowpct: "lowRPct", maxr: "maxR", perday: "maxPerDay", window: "entryWindow", minpct: "minPct" } as const;
 const LISTS = {
   crt: { key: "crt", allowed: ["day", "week"] as CrtTf[] },
   sess: { key: "sessions", allowed: ["asian", "london", "newyork"] as Session[] },
   ktf: { key: "keyLevelTfs", allowed: ["h4", "d1", "w1"] as Tf[] },
-  kind: { key: "keyLevelKinds", allowed: ["old", "ob", "fvg", "rb", "breaker"] as LevelKind[] }
+  kind: { key: "keyLevelKinds", allowed: ["old", "ob", "fvg", "rb", "breaker"] as LevelKind[] },
+  must: { key: "mustHave", allowed: [...CONFLUENCES] as ConfKey[] }
 } as const;
 
 export function readHash(hash: string): Saved {
@@ -41,7 +42,7 @@ export function readHash(hash: string): Saved {
     const v = q.get(short);
     if (v === null) continue;
     const list = v.split(",").filter((x) => (allowed as readonly string[]).includes(x));
-    if (list.length || key === "sessions") cfg[key] = list;
+    if (list.length || key === "sessions" || key === "mustHave") cfg[key] = list;
   }
   for (const [short, key] of [["spread", "spread"], ["buf", "stopBuffer"]] as const) {
     const v = Number(q.get(short));

@@ -191,7 +191,7 @@ export const weekDate = (key: number) => (7 * key - 3) * 86400;
 function emptyFunnel(): Funnel {
   return {
     days: 0, sweeps: 0, biasBlocked: 0, keyLevels: 0, closedInside: 0, zones: 0, touches: 0, entries: 0,
-    skippedNews: 0, skippedSession: 0, skippedPastMid: 0, skippedLowR: 0, skippedDailyCap: 0, skippedOverlap: 0
+    skippedNews: 0, skippedSession: 0, skippedPastMid: 0, skippedLowR: 0, skippedDailyCap: 0, skippedOverlap: 0, skippedChecks: 0
   };
 }
 
@@ -437,6 +437,11 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
     const key = cfg.requireKeyLevel ? st.keyLevel : findKey(st, now);
     const conf = checklist(st, i, entry, key, o.fib, o.displacement, o.turnI);
     const sc = scoreOf(conf);
+    if (cfg.mustHave.some((k) => conf[k] === false) || sc.pct < cfg.minPct - 1e-9) {
+      funnel.skippedChecks++;
+      st.why = "checks";
+      return null;
+    }
 
     // the target: the liquidity at the far end of candle 1, within the R limits
     let target = long ? st.rangeHigh : st.rangeLow;

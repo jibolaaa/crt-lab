@@ -16,9 +16,11 @@ For a sell (buys are the mirror image):
 
 When there's an entry, or a limit to set, the page shows which way and how much of your checklist the setup meets, e.g. Sell 72% / Buy 28%. The checklist has 13 checks: weekly structure, weekly CRT, 4-hour and daily structure, premium/discount and a daily or weekly key level count double; an order block and gap overlap, the 50 to 78.6% fib zone, the Gann box, an IFVG, the London or New York open, a strong shift candle, SMT and old liquidity count once. That's 18 points. SMT needs a related market (GBP/USD for EUR/USD, say), loaded from Deriv with the main one; without one it is left out. The percent is how much of the checklist is met, not a chance of winning.
 
+Under Change rules you can make any check a must-have, or set a lowest percent. Trades without them are skipped.
+
 ## Right now
 
-On a live Deriv market (it opens on Volatility 75), the page reads each CRT at the last closed candle: candle 1's range, whether candle 2 has swept it into a key level and closed back inside, the killer zone, any zone waiting for price, and any limit or trade with its stop, target and percent.
+On a live Deriv market (it opens on EUR/USD), the page reads each CRT at the last closed candle: candle 1's range, whether candle 2 has swept it into a key level and closed back inside, the killer zone, any zone waiting for price, and any limit or trade with its stop, target and percent.
 
 ## What could happen next
 
@@ -50,7 +52,8 @@ With today's rules: 190 trades in 8 years (about 2 a month), 26% won, and −9.3
 ## Data
 
 - **Built in:** EUR/USD 15-minute bid candles from 2014 to 2021, from Dukascopy via the [FX-Data](https://github.com/FX-Data/FX-Data-EURUSD-DS) project. `scripts/build_eurusd.py` turns their MT4 history files into `public/data/eurusd-15m.bin`. February 2017 is missing in the source.
-- **Live:** Deriv's public price feed, loaded straight from the browser as 5-minute candles, up to a year back: EUR/USD, GBP/USD, AUD/USD, GBP/JPY, gold, silver, Volatility 75, Volatility 75 (1s), US Tech 100, US 500, Wall Street 30 and BTC/USD, plus a related market for SMT where one fits.
+- **Live:** Deriv's public price feed, loaded straight from the browser as 5-minute candles, up to a year back: EUR/USD, GBP/USD, AUD/USD, GBP/JPY, gold, silver, US Tech 100, US 500, Wall Street 30 and BTC/USD, plus a related market for SMT where one fits.
+- **Not included:** Deriv's synthetic indices, like Volatility 75. Deriv makes their prices with a random number generator and says any patterns in their history are coincidental, so there's no liquidity or session for CRT to read. On made-up random prices with V75's volatility, today's rules won 26% of trades and lost a little on average.
 
 ## Run it
 

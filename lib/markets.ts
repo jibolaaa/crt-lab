@@ -1,6 +1,6 @@
 // The markets the page can test, and how each one trades.
 
-export type Group = "Built in" | "Forex" | "Metals" | "Synthetic indices" | "US indices" | "Crypto";
+export type Group = "Built in" | "Forex" | "Metals" | "US indices" | "Crypto";
 
 export interface Market {
   id: string;
@@ -11,7 +11,7 @@ export interface Market {
   symbol?: string;
   /** A related market for the SMT check: did it sweep too? */
   smt?: { symbol: string; name: string };
-  /** Size of one display unit of price (a pip for forex, 1 for metals, indices, crypto and synthetics). */
+  /** Size of one display unit of price (a pip for forex, 1 for metals, indices and crypto). */
   unit: number;
   unitName: string;
   /** Default spread in price units, or as a share of the price for markets quoted in big numbers. */
@@ -48,16 +48,18 @@ export const MARKETS: Market[] = [
   { id: "frxGBPJPY", name: "GBP/JPY", group: "Forex", source: "deriv", symbol: "frxGBPJPY", smt: { symbol: "frxEURJPY", name: "EUR/JPY" }, unit: 0.01, unitName: "pips", spread: 0.03, weekendClosed: true, usdNews: false, digits: 3, spec: { ...FX, quoteUsd: 1 / 150, quoteName: "yen" } },
   { id: "frxXAUUSD", name: "Gold (XAU/USD)", group: "Metals", source: "deriv", symbol: "frxXAUUSD", smt: { symbol: "frxXAGUSD", name: "silver" }, unit: 1, unitName: "dollars", spread: 0.3, buffer: 0.1, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 100, minLot: 0.01, lotStep: 0.01 } },
   { id: "frxXAGUSD", name: "Silver (XAG/USD)", group: "Metals", source: "deriv", symbol: "frxXAGUSD", smt: { symbol: "frxXAUUSD", name: "gold" }, unit: 1, unitName: "dollars", spread: 0.03, buffer: 0.01, weekendClosed: true, usdNews: true, digits: 3, spec: { contract: 5000, minLot: 0.01, lotStep: 0.01 } },
-  { id: "R_75", name: "Volatility 75", group: "Synthetic indices", source: "deriv", symbol: "R_75", unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: false, usdNews: false, digits: 2, spec: { contract: 1, minLot: 0.001, lotStep: 0.001 } },
-  { id: "1HZ75V", name: "Volatility 75 (1s)", group: "Synthetic indices", source: "deriv", symbol: "1HZ75V", unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: false, usdNews: false, digits: 2, spec: { contract: 1, minLot: 0.005, lotStep: 0.001 } },
   { id: "OTC_NDX", name: "US Tech 100", group: "US indices", source: "deriv", symbol: "OTC_NDX", smt: { symbol: "OTC_SPC", name: "US 500" }, unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } },
   { id: "OTC_SPC", name: "US 500", group: "US indices", source: "deriv", symbol: "OTC_SPC", smt: { symbol: "OTC_NDX", name: "US Tech 100" }, unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } },
   { id: "OTC_DJI", name: "Wall Street 30", group: "US indices", source: "deriv", symbol: "OTC_DJI", smt: { symbol: "OTC_SPC", name: "US 500" }, unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } },
   { id: "cryBTCUSD", name: "BTC/USD", group: "Crypto", source: "deriv", symbol: "cryBTCUSD", smt: { symbol: "cryETHUSD", name: "ETH/USD" }, unit: 1, unitName: "dollars", spreadShare: 0.0002, weekendClosed: false, usdNews: false, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } }
 ];
 
-/** The page opens on a live market, so "right now" has something to read. */
-export const DEFAULT_MARKET = "R_75";
+/**
+ * The page opens on a live market, so "right now" has something to read.
+ * Deriv's synthetic indices (Volatility 75 and the like) aren't offered: Deriv makes their
+ * prices with a random number generator, so there's no liquidity or session for CRT to read.
+ */
+export const DEFAULT_MARKET = "frxEURUSD";
 
 export const marketById = (id: string) => MARKETS.find((m) => m.id === id) ?? MARKETS[0];
 

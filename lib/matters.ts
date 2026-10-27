@@ -42,6 +42,8 @@ export function variantsFor(cfg: Config): Variant[] {
   if (cfg.usdNews) v.push(cfg.newsGuard
     ? { key: "news", label: "Trade jobs-report days too", change: { newsGuard: false } }
     : { key: "news", label: "Rest on jobs-report days", change: { newsGuard: true } });
+  if (cfg.mustHave.length) v.push({ key: "must", label: "No must-have checks", change: { mustHave: [] } });
+  if (cfg.minPct > 0) v.push({ key: "minpct", label: "Any checklist percent", change: { minPct: 0 } });
   if (cfg.maxPerDay > 0) v.push({ key: "perday", label: "No daily trade limit", change: { maxPerDay: 0 } });
   return v;
 }

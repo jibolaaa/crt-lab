@@ -58,7 +58,7 @@ describe("loading candles from Deriv", () => {
   it("asks for 5-minute candles when told to, and keeps only ones on the 5-minute grid", async () => {
     const five = Array.from({ length: 600 }, (_, i) => ({ epoch: START + i * 300, open: 1.1, high: 1.1002, low: 1.0998, close: 1.1001 }));
     const { make, log } = server({ candles: [...five, { epoch: START + 600 * 300 + 7, open: 1, high: 1, low: 1, close: 1 }] });
-    const res = await loadDerivCandles("R_75", { from: START, granularity: 300, makeSocket: make });
+    const res = await loadDerivCandles("frxEURUSD", { from: START, granularity: 300, makeSocket: make });
     expect(log[0].req).toMatchObject({ granularity: 300 });
     expect(res.candles.length).toBe(600);
   });
@@ -66,7 +66,7 @@ describe("loading candles from Deriv", () => {
   it("says so when Deriv runs out of history first", async () => {
     const all = candles(6000);
     const { make } = server({ candles: all });
-    const res = await loadDerivCandles("R_75", { from: START - 365 * 86400, makeSocket: make });
+    const res = await loadDerivCandles("frxEURUSD", { from: START - 365 * 86400, makeSocket: make });
     expect(res.candles.length).toBe(6000);
     expect(res.shortBy).toMatch(/no older candles/);
   });
@@ -95,7 +95,7 @@ describe("loading candles from Deriv", () => {
   it("ignores messages that aren't the answer", async () => {
     const all = candles(12000);
     const { make } = server({ candles: all, chatty: true });
-    const res = await loadDerivCandles("R_75", { from: all[0].epoch, makeSocket: make });
+    const res = await loadDerivCandles("frxEURUSD", { from: all[0].epoch, makeSocket: make });
     expect(res.candles.length).toBe(12000);
     expect(res.shortBy).toBeNull();
   });
