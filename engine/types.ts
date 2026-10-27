@@ -66,6 +66,13 @@ export interface Config {
   entry: EntryModel;
   /** The weekly bias as a gate. "off" means it only counts toward the percent. */
   bias: BiasMode;
+  /**
+   * Which way to trade. "auto": buys only on markets that tend to rise over time (US indices,
+   * see `driftUp`), both ways elsewhere.
+   */
+  side: "auto" | "both" | "buys" | "sells";
+  /** This market tends to rise over time (stock indices). Set by the page for each market. */
+  driftUp: boolean;
   /** The 1-hour zone for the BOS entries (4-hour for weekly CRTs). */
   zone: ZoneMode;
   /** The zone has to sit in the killer zone, between candle 1's body and the sweep's tip. */
@@ -130,6 +137,8 @@ export const DEFAULT_CONFIG: Config = {
   crt: ["day", "week"],
   entry: "shift",
   bias: "off",
+  side: "auto",
+  driftUp: false,
   zone: "any",
   zoneInKiller: true,
   timing: "either", // entries in candle 2 (after the sweep) or candle 3

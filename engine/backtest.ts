@@ -185,6 +185,12 @@ export function inKillzone(t: number) {
   return (h >= 2 && h < 5) || (h >= 7 && h < 10);
 }
 
+/** Whether the rules take trades this way. */
+export function sideAllows(cfg: Pick<Config, "side" | "driftUp">, dir: Dir) {
+  const side = cfg.side === "auto" ? (cfg.driftUp ? "buys" : "both") : cfg.side;
+  return side === "both" || (side === "buys" ? dir === 1 : dir === -1);
+}
+
 /** A week's Monday as midnight UTC, from its week number. */
 export const weekDate = (key: number) => (7 * key - 3) * 86400;
 
@@ -537,10 +543,11 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
     for (const dir of [1, -1] as Dir[]) {
       const st = recent.find((x) => x.p2 === curP && x.dir === dir);
       if (st) { out.push(describe(st, lastI)); continue; }
-      if (prev && biasByWeek && gate !== dir) {
+      const offSide = !sideAllows(cfg, dir);
+      if (prev && (offSide || (biasByWeek && gate !== dir))) {
         out.push({
           tf, dir, fromYesterday: false, age: 0, stage: "blocked", rangeDate: periodDate(prev), sweepDate: periodDate(cur),
-          why: null, rangeHigh: prev.h, rangeLow: prev.l, mid: (prev.h + prev.l) / 2,
+          why: offSide ? "side" : null, rangeHigh: prev.h, rangeLow: prev.l, mid: (prev.h + prev.l) / 2,
           bodyEdge: dir === 1 ? Math.min(prev.o, prev.c) : Math.max(prev.o, prev.c),
           sweepPrice: null, keyLevel: null, zone: null, level: null, order: null, pending: null, call: null, skipR: null, trade: null
         });
@@ -690,6 +697,7 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
         const cur = periods[pi];
         const struct = p.bias.structure[weekly ? pi : cal.weekOfDay[pi]];
         for (const dir of [1, -1] as Dir[]) {
+          if (!sideAllows(cfg, dir)) continue; // this way is off for this market
           const allowed = !biasByWeek || gate === dir;
           const sweptAll = dir === 1 ? cur.l < prev.l : cur.h > prev.h; // only for counting
           if (!allowed) { if (sweptAll) funnel.biasBlocked++; continue; }

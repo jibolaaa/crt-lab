@@ -130,6 +130,11 @@ export function describeSetup(s: LiveSetup, px: (x: number) => string, cfg: Conf
     : "";
   switch (s.stage) {
     case "blocked":
+      if (s.why === "side") {
+        return cfg.side === "auto"
+          ? { title: `${long ? "Buys" : "Sells"} are off here`, text: "This market tends to rise over time, so only buys are taken. Change it under Change rules, Trade direction." }
+          : { title: `${long ? "Buys" : "Sells"} are off`, text: `Your rules take ${cfg.side === "buys" ? "buys" : "sells"} only.` };
+      }
       return { title: "Off this week", text: `Your weekly bias rule doesn't allow ${long ? "buys" : "sells"} this week.` };
     case "waiting":
       return { title: "Waiting for the sweep", text: `Needs price to trade ${past} candle 1's ${side}, ${px(edge)}.` };

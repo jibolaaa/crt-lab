@@ -27,6 +27,9 @@ export function variantsFor(cfg: Config): Variant[] {
   v.push(cfg.bias === "off"
     ? { key: "bias", label: "Weekly structure must agree", change: { bias: "structure" } }
     : { key: "bias", label: "Weekly bias only counts toward the percent", change: { bias: "off" } });
+  if (cfg.driftUp) v.push(cfg.side === "both"
+    ? { key: "side", label: "Buys only (with the drift)", change: { side: "auto" } }
+    : { key: "side", label: "Both ways", change: { side: "both" } });
   if (cfg.sessions.length) v.push({ key: "sessions", label: "Any time of day", change: { sessions: [] } });
   v.push(cfg.stop === "sweep"
     ? { key: "stop", label: "Stop beyond the order block", change: { stop: "ob" } }

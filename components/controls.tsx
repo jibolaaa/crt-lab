@@ -107,6 +107,11 @@ export function Settings(p: Props) {
             hint="Off means the weekly bias only moves the percent. Otherwise trades against it are skipped. Structure: the last weekly close broke a weekly swing. Only finished weeks count."
           />
           <Choice
+            legend="Trade direction" name="side" value={c.side} onChange={(v) => u({ side: v })}
+            options={[["auto", "With the drift"], ["both", "Both ways"], ["buys", "Buys only"], ["sells", "Sells only"]]}
+            hint="With the drift: buys only on US indices, which tend to rise over time, and both ways everywhere else."
+          />
+          <Choice
             legend="Daily candle starts at" name="day" value={c.dayStart} onChange={(v) => u({ dayStart: v })}
             options={[["utc", "Midnight UTC"], ["nyClose", "5pm New York"]]}
             hint="Deriv's MT5 charts use midnight UTC. Many other brokers use 5pm New York."

@@ -10,8 +10,12 @@ describe("the address", () => {
   it("stays empty for the default market and rules", () => {
     expect(write({})).toBe("");
   });
-  it("opens on live EUR/USD", () => {
-    expect(DEFAULT_MARKET).toBe("frxEURUSD");
+  it("opens on US Tech 100", () => {
+    expect(DEFAULT_MARKET).toBe("OTC_NDX");
+  });
+  it("keeps the trade direction", () => {
+    expect(readHash("#" + write({ side: "both" })).cfg.side).toBe("both");
+    expect(write({ side: "auto" })).toBe("");
   });
   it("keeps must-have checks and the lowest percent", () => {
     const hash = write({ mustHave: ["killzone", "discount"], minPct: 70 }, "frxXAUUSD");

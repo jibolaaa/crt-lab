@@ -309,6 +309,17 @@ describe("a BOS sell on 5-minute candles in a 1-hour zone", () => {
     expect(run(s, bos({ minPct: tr.pct + 1 })).trades.length).toBe(0);
     expect(run(s, bos({ minPct: tr.pct })).trades.length).toBe(1);
   });
+  it("takes only the directions the rules allow", () => {
+    expect(run(s, bos({ side: "buys" })).trades.length).toBe(0);
+    expect(run(s, bos({ side: "sells" })).trades.length).toBe(1);
+    expect(run(s, bos({ side: "auto", driftUp: true })).trades.length).toBe(0); // a market that drifts up: buys only
+    expect(run(s, bos({ side: "auto", driftUp: false })).trades.length).toBe(1);
+  });
+  it("says why sells are off on a market that drifts up", () => {
+    const c = bos({ driftUp: true });
+    const l = runBacktest(prepare(s, c), c).live!;
+    expect(l.setups.find((x) => x.tf === "day" && x.dir === -1 && x.age === 0)).toMatchObject({ stage: "blocked", why: "side" });
+  });
   it("needs the zone inside the killer zone", () => {
     // candle 1 closes at 1.1090, so its body top is above the block's bottom
     const high = make5({ ...bosSell, "0:20:00": [1.095, 1.109, 1.095, 1.109] });

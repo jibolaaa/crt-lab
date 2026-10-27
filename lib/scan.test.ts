@@ -29,6 +29,8 @@ describe("each market's own rules", () => {
     const v = marketCfg(cfg, v75, 400000);
     expect(v).toMatchObject({ minPct: 55, weekendClosed: false, usdNews: false });
     expect(v.spread).toBeCloseTo(40, 6); // a hundredth of a percent of the price
+    expect(marketCfg(cfg, marketById("OTC_NDX"), 20000).driftUp).toBe(true); // stock indices drift up
+    expect(marketCfg(cfg, gold, 4000).driftUp).toBe(false);
   });
 });
 

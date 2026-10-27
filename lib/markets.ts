@@ -13,6 +13,8 @@ export interface Market {
   smt?: { symbol: string; name: string };
   /** Deriv makes this market's prices with a random number generator (its synthetic indices). */
   random?: boolean;
+  /** Tends to rise over time (stock indices), so "with the drift" takes buys only. */
+  drift?: boolean;
   /** Size of one display unit of price (a pip for forex, 1 for metals, indices, crypto and synthetics). */
   unit: number;
   unitName: string;
@@ -50,9 +52,9 @@ export const MARKETS: Market[] = [
   { id: "frxGBPJPY", name: "GBP/JPY", group: "Forex", source: "deriv", symbol: "frxGBPJPY", smt: { symbol: "frxEURJPY", name: "EUR/JPY" }, unit: 0.01, unitName: "pips", spread: 0.03, weekendClosed: true, usdNews: false, digits: 3, spec: { ...FX, quoteUsd: 1 / 150, quoteName: "yen" } },
   { id: "frxXAUUSD", name: "Gold (XAU/USD)", group: "Metals", source: "deriv", symbol: "frxXAUUSD", smt: { symbol: "frxXAGUSD", name: "silver" }, unit: 1, unitName: "dollars", spread: 0.3, buffer: 0.1, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 100, minLot: 0.01, lotStep: 0.01 } },
   { id: "frxXAGUSD", name: "Silver (XAG/USD)", group: "Metals", source: "deriv", symbol: "frxXAGUSD", smt: { symbol: "frxXAUUSD", name: "gold" }, unit: 1, unitName: "dollars", spread: 0.03, buffer: 0.01, weekendClosed: true, usdNews: true, digits: 3, spec: { contract: 5000, minLot: 0.01, lotStep: 0.01 } },
-  { id: "OTC_NDX", name: "US Tech 100", group: "US indices", source: "deriv", symbol: "OTC_NDX", smt: { symbol: "OTC_SPC", name: "US 500" }, unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } },
-  { id: "OTC_SPC", name: "US 500", group: "US indices", source: "deriv", symbol: "OTC_SPC", smt: { symbol: "OTC_NDX", name: "US Tech 100" }, unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } },
-  { id: "OTC_DJI", name: "Wall Street 30", group: "US indices", source: "deriv", symbol: "OTC_DJI", smt: { symbol: "OTC_SPC", name: "US 500" }, unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } },
+  { id: "OTC_NDX", drift: true, name: "US Tech 100", group: "US indices", source: "deriv", symbol: "OTC_NDX", smt: { symbol: "OTC_SPC", name: "US 500" }, unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } },
+  { id: "OTC_SPC", drift: true, name: "US 500", group: "US indices", source: "deriv", symbol: "OTC_SPC", smt: { symbol: "OTC_NDX", name: "US Tech 100" }, unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } },
+  { id: "OTC_DJI", drift: true, name: "Wall Street 30", group: "US indices", source: "deriv", symbol: "OTC_DJI", smt: { symbol: "OTC_SPC", name: "US 500" }, unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } },
   { id: "cryBTCUSD", name: "BTC/USD", group: "Crypto", source: "deriv", symbol: "cryBTCUSD", smt: { symbol: "cryETHUSD", name: "ETH/USD" }, unit: 1, unitName: "dollars", spreadShare: 0.0002, weekendClosed: false, usdNews: false, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } },
   // Deriv's synthetic indices. Lot sizes are MT5 starting values; check them in MT5.
   { id: "R_25", name: "Volatility 25", group: "Synthetic indices", source: "deriv", symbol: "R_25", random: true, unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: false, usdNews: false, digits: 3, spec: { contract: 1, minLot: 0.5, lotStep: 0.01 } },
@@ -64,10 +66,10 @@ export const MARKETS: Market[] = [
 ];
 
 /** The page opens on a live market, so "right now" has something to read. */
-export const DEFAULT_MARKET = "frxEURUSD";
+export const DEFAULT_MARKET = "OTC_NDX";
 
-/** The markets the All markets view starts with: the ones traded most days. */
-export const ALL_DEFAULT = ["frxEURUSD", "frxGBPUSD", "frxAUDUSD", "frxGBPJPY", "frxXAUUSD", "frxXAGUSD", "cryBTCUSD", "R_25", "R_50", "R_75"];
+/** The markets the All markets view starts with: the indices. */
+export const ALL_DEFAULT = ["OTC_NDX", "OTC_SPC", "OTC_DJI", "R_25", "R_50", "R_75"];
 
 /**
  * Live prices load as far back as Deriv sends 5-minute candles. This is only the oldest date asked

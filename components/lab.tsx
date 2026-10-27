@@ -194,7 +194,7 @@ export default function Lab() {
     const spread = pending.current.spread ?? defaults.current.spread;
     const stopBuffer = pending.current.stopBuffer ?? defaults.current.stopBuffer;
     pending.current = {};
-    setCfg((c) => ({ ...c, spread, stopBuffer, weekendClosed: mk.weekendClosed, usdNews: mk.usdNews }));
+    setCfg((c) => ({ ...c, spread, stopBuffer, weekendClosed: mk.weekendClosed, usdNews: mk.usdNews, driftUp: !!mk.drift }));
     setData(info);
     setLoading(null);
   }, []);
@@ -370,7 +370,7 @@ export default function Lab() {
 
   const update = useCallback((change: Partial<Config>) => setCfg((c) => ({ ...c, ...change })), []);
   const reset = useCallback(() => setCfg((c) => ({
-    ...DEFAULT_CONFIG, spread: defaults.current.spread, stopBuffer: defaults.current.stopBuffer, weekendClosed: c.weekendClosed, usdNews: c.usdNews
+    ...DEFAULT_CONFIG, spread: defaults.current.spread, stopBuffer: defaults.current.stopBuffer, weekendClosed: c.weekendClosed, usdNews: c.usdNews, driftUp: c.driftUp
   })), []);
 
   const dollars = useMemo(() => (result ? simulate(result.trades, spec, money) : null), [result, spec, money]);

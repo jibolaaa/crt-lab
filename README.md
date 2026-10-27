@@ -12,6 +12,7 @@ For a sell (buys are the mirror image):
 4. **The entry**, in candle 2 once it has swept, or in candle 3: price comes back into the zone, then a candle closes below the last swing low (the BOS). Daily CRTs look for the BOS on 5-minute candles, weekly CRTs on 15-minute candles. The built-in EUR/USD only has 15-minute prices, so its daily CRTs use 15-minute candles for the BOS. A retest entry (a limit at the order block the BOS left) and a QM entry are there to compare.
 5. **Stop and target.** The stop goes beyond the 1-hour order block (4-hour for weekly CRTs). The target is candle 1's low, capped at 4R. Targets under 2R are skipped. TP1: half closes at candle 1's 50% level and the stop moves to the entry. Trades run until they hit the stop or the target. At most 3 new trades a day, and never two at once the same way on the same CRT.
 6. **The checklist.** Only setups that meet 60% or more of the checklist below are taken.
+7. **Direction.** US indices tend to rise over time, so on them only buys are taken (with the drift). Other markets trade both ways.
 
 ## The call
 
@@ -21,11 +22,11 @@ Under Change rules you can make any check a must-have, or set a lowest percent. 
 
 ## Right now
 
-On a live Deriv market (it opens on EUR/USD), the page reads each CRT at the last closed candle: candle 1's range, whether candle 2 has swept it into a key level and closed back inside, the killer zone, any zone waiting for price, and any limit or trade with its stop, target and percent.
+On a live Deriv market (it opens on US Tech 100), the page reads each CRT at the last closed candle: candle 1's range, whether candle 2 has swept it into a key level and closed back inside, the killer zone, any zone waiting for price, and any limit or trade with its stop, target and percent.
 
 ## All markets
 
-Pick the markets you trade and the page loads each one from Deriv, then runs the same rules on all of them: every setup close to an entry right now, in one list with the most urgent first; the combined result with trades a week across the markets; each market's own result; and every trade, newest first. Tap a market to open it on its own. Each market uses its own usual spread and stop room, and the rules from Change rules.
+Pick the markets you trade (it starts with the indices: US Tech 100, US 500, Wall Street 30 and Volatility 25, 50 and 75) and the page loads each one from Deriv, then runs the same rules on all of them: every setup close to an entry right now, in one list with the most urgent first; the combined result with trades a week across the markets; each market's own result; and every trade, newest first. Tap a market to open it on its own. Each market uses its own usual spread and stop room, and the rules from Change rules.
 
 ## Which target
 
@@ -48,6 +49,10 @@ With today's rules: 102 trades in 8 years (about 13 a year), 36% won, and +2.5R 
 
 With the earlier rules (the time limit and any percent), about 130 changes (single rule changes, and pairs of must-have checks) were each scored on the first 70% of the prices, then checked on the last 30%. None held up. The best on the first 70%, the QM entry (+44.6R), lost 36.9R on the last 30%. Entries only at the London or New York open won 38% and made +17.9R on the first 70%, then won 23% and lost 2.6R. On made-up random prices with EUR/USD's volatility, the same search also found rules that made +9R to +40R on the first 70%, so a strong number on its own can be luck.
 
+### A CRT on the New York open
+
+Candle 1 the hour before 9:30 New York time, candle 2 the first half hour after it, entering when candle 2 closes back inside (or at the swept level), stop past candle 2's wick, target candle 1's other end. On 8 years of EUR/USD it lost in every version tried (−17.5R to −147.7R). Even with no spread or stop room, all but one version lost, and that one lost on the first 70% of the data. So it isn't on the page.
+
 ### Small targets
 
 Capping the target at 0.5R raised the win rate to 58 to 59%, but lost 33.7R over the 8 years, since each loss cost about twice what a win paid. On random prices, 0.5R targets won 64% and also lost.
@@ -58,7 +63,7 @@ Capping the target at 0.5R raised the win rate to 58 to 59%, but lost 33.7R over
 - When one candle could have hit both the stop and a target, the stop is assumed to come first. A limit that fills on a candle that also reaches the stop counts as a loss.
 - Every trade pays the spread: buys open at the ask and close at the bid.
 - Higher-timeframe levels only count after the candle that completed them has closed, and zones stop counting once a candle of their own timeframe closes through them.
-- 225 automated tests: hand-built candle scenarios with exact expected results (5-minute BOS and retest entries, zones outside the killer zone, daily and weekly QM sells, deeper sweeps, closes outside the range, old-high key levels, SMT), key level detection, the dollar maths, adding up All markets, a fake Deriv server for the price loader, and real-data checks that cut the prices off at each entry and confirm the same trade, key level and percent still come out.
+- 228 automated tests: hand-built candle scenarios with exact expected results (5-minute BOS and retest entries, zones outside the killer zone, daily and weekly QM sells, deeper sweeps, closes outside the range, old-high key levels, SMT), key level detection, the dollar maths, adding up All markets, a fake Deriv server for the price loader, and real-data checks that cut the prices off at each entry and confirm the same trade, key level and percent still come out.
 
 ## Data
 

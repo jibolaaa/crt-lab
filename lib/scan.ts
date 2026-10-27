@@ -35,7 +35,7 @@ export interface ScanRow {
 
 /** The rules for one market: the same checks, with that market's spread, stop room and calendar. */
 export function marketCfg(cfg: Config, m: Market, lastClose: number): Config {
-  return { ...cfg, spread: defaultSpread(m, lastClose), stopBuffer: defaultStopBuffer(m, lastClose), weekendClosed: m.weekendClosed, usdNews: m.usdNews };
+  return { ...cfg, spread: defaultSpread(m, lastClose), stopBuffer: defaultStopBuffer(m, lastClose), weekendClosed: m.weekendClosed, usdNews: m.usdNews, driftUp: !!m.drift };
 }
 
 /** The compact result for one market. */

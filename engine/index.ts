@@ -1,5 +1,5 @@
 export * from "./types";
-export { prepare, runBacktest, type Prepared } from "./backtest";
+export { prepare, runBacktest, sideAllows, type Prepared } from "./backtest";
 export { stats, compound } from "./stats";
 export { nfpRelease, nfpTimes, dayKey, inSessions, usDst } from "./calendar";
 
