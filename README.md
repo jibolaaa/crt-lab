@@ -1,6 +1,6 @@
 # CRT Lab
 
-See where today's daily and weekly Candle Range Theory (CRT) setups stand, on one market or all of them at once, get a call with your checklist percent when there's an entry, test the rules on real prices with every trade they would have taken, and see what they could do to your account.
+See where today's daily and weekly Candle Range Theory (CRT) setups stand, on one market or all of them at once, get a call with your checklist percent when there's an entry, and test the rules on real prices with every trade they would have taken.
 
 ## What it looks for
 
@@ -26,10 +26,6 @@ On a live Deriv market (it opens on EUR/USD), the page reads each CRT at the las
 ## All markets
 
 Pick the markets you trade and the page loads each one from Deriv, then runs the same rules on all of them: every setup close to an entry right now, in one list with the most urgent first; the combined result with trades a week across the markets; each market's own result; and every trade, newest first. Tap a market to open it on its own. Each market uses its own usual spread and stop room, and the rules from Change rules.
-
-## What could happen next
-
-Enter your account size and pick a week, a month, 3 months or a year. Each of 2,000 runs picks trades at random from the market's past ones, about as often as they came, at your lot size or risk. The page shows a bad, a likely and a good result, the chance of ending down and the chance of losing the whole account. It shows how wide the outcomes can be, not a forecast.
 
 ## Which target
 
@@ -62,7 +58,7 @@ Capping the target at 0.5R raised the win rate to 58 to 59%, but lost 33.7R over
 - When one candle could have hit both the stop and a target, the stop is assumed to come first. A limit that fills on a candle that also reaches the stop counts as a loss.
 - Every trade pays the spread: buys open at the ask and close at the bid.
 - Higher-timeframe levels only count after the candle that completed them has closed, and zones stop counting once a candle of their own timeframe closes through them.
-- 230 automated tests: hand-built candle scenarios with exact expected results (5-minute BOS and retest entries, zones outside the killer zone, daily and weekly QM sells, deeper sweeps, closes outside the range, old-high key levels, SMT), key level detection, the dollar maths, the projection, adding up All markets, a fake Deriv server for the price loader, and real-data checks that cut the prices off at each entry and confirm the same trade, key level and percent still come out.
+- 225 automated tests: hand-built candle scenarios with exact expected results (5-minute BOS and retest entries, zones outside the killer zone, daily and weekly QM sells, deeper sweeps, closes outside the range, old-high key levels, SMT), key level detection, the dollar maths, adding up All markets, a fake Deriv server for the price loader, and real-data checks that cut the prices off at each entry and confirm the same trade, key level and percent still come out.
 
 ## Data
 

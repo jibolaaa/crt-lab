@@ -11,7 +11,6 @@ import { fmtR } from "../lib/format";
 import { MarketBar, Settings } from "./controls";
 import { Now } from "./now";
 import { Funnel, Grades, Matters, StatsTable, Targets, Verdict } from "./results";
-import { ProjectionCard } from "./projection";
 import { Trades, type Candles } from "./trades";
 import { Method } from "./method";
 import { AllMarkets } from "./allmarkets";
@@ -39,6 +38,20 @@ function loadIds(key: string, fallback: string[]): string[] {
 function save(key: string, value: unknown) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode or storage off */ }
 }
+
+/** Resolves once the page is on screen. A phone pauses pages in the background, which can drop Deriv's connection. */
+function whenVisible(): Promise<void> {
+  if (typeof document === "undefined" || document.visibilityState !== "hidden") return Promise.resolve();
+  return new Promise((resolve) => {
+    const on = () => {
+      if (document.visibilityState === "hidden") return;
+      document.removeEventListener("visibilitychange", on);
+      resolve();
+    };
+    document.addEventListener("visibilitychange", on);
+  });
+}
+const dropped = (shortBy: string | null | undefined) => !!shortBy && shortBy.startsWith("The connection");
 
 /** Candles that have closed, as columns for the worker. */
 function toColumns(candles: DerivCandle[]): Columns {
@@ -160,6 +173,7 @@ export default function Lab() {
     const run = async (): Promise<StoredInfo> => {
       const have = stored.current.get(symbol);
       if (have && !force) return have;
+      await whenVisible(); // wait while the page is in the background
       const now = Date.now() / 1000;
       const res = await loadDerivCandles(symbol, { from: Math.floor(now - MAX_HISTORY_DAYS * 86400), granularity: LIVE_GRANULARITY, maxCandles: MAX_CANDLES, onProgress });
       const cols = toColumns(res.candles);
@@ -257,12 +271,13 @@ export default function Lab() {
   }, [send]);
 
   /** Load the chosen markets one by one, and show each one's result as soon as it's in. */
-  const loadAll = useCallback(async (ids: string[], force = false) => {
+  const loadAll = useCallback(async (ids: string[], forceAll = false, forceIds: string[] = []) => {
     const token = ++scanToken.current;
     const live = ids.filter((id) => marketById(id).source === "deriv");
     for (let k = 0; k < live.length; k++) {
       if (scanToken.current !== token) return;
       const mk = marketById(live[k]);
+      const force = forceAll || forceIds.includes(mk.id);
       const label = `${mk.name} (${k + 1} of ${live.length})`;
       const need = force || !stored.current.has(mk.symbol!) || (mk.smt && !stored.current.has(mk.smt.symbol));
       if (need) setScanStatus({ text: `Loading ${label}`, fraction: k / live.length });
@@ -307,6 +322,31 @@ export default function Lab() {
     setScan((s) => ({ gen, rows: s.rows })); // keep showing the old results until the new ones come in
     loadAll(allRef.current, true);
   }, [loadAll]);
+
+  // back from the background: finish anything the phone cut short
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const oneRef = useRef({ loadError, data });
+  oneRef.current = { loadError, data };
+  const errRef = useRef(scanErrors);
+  errRef.current = scanErrors;
+  useEffect(() => {
+    const on = () => {
+      if (document.visibilityState === "hidden") return;
+      if (viewRef.current === "one") {
+        const { loadError: err, data: d } = oneRef.current;
+        if (err || dropped(d?.shortBy)) loadPrices(true);
+        return;
+      }
+      const bad = allRef.current.filter((id) => {
+        const mk = marketById(id);
+        return errRef.current[id] || (mk.symbol && dropped(stored.current.get(mk.symbol)?.shortBy));
+      });
+      if (bad.length) loadAll(allRef.current, false, bad);
+    };
+    document.addEventListener("visibilitychange", on);
+    return () => document.removeEventListener("visibilitychange", on);
+  }, [loadPrices, loadAll]);
 
   const openMarket = useCallback((id: string) => {
     setMarketId(id);
@@ -362,13 +402,17 @@ export default function Lab() {
           <button role="tab" aria-selected={view === "one"} className={view === "one" ? "on" : ""} onClick={() => setView("one")}>One market</button>
           <button role="tab" aria-selected={view === "all"} className={view === "all" ? "on" : ""} onClick={() => setView("all")}>All markets</button>
         </div>
+        <p className="view-hint">
+          {view === "one"
+            ? "One market in detail: its setups, trades and charts."
+            : "Your rules on all your markets at once: every setup close to an entry, and the total result."}
+        </p>
 
         {view === "one" ? (
           <>
             <MarketBar market={market} onMarket={setMarketId} data={data} loading={loading} loadError={loadError} onRetry={() => loadPrices(true)} />
             <Now result={result} market={market} cfg={cfg} loading={!!loading} dt={data?.dt} />
             <Verdict result={result} data={data} market={market} failed={!!loadError} money={dollars} moneyCfg={money} />
-            <ProjectionCard result={result} spec={spec} money={money} setMoney={setMoney} />
           </>
         ) : (
           <AllMarkets ids={allIds} setIds={setAllIds} rows={scanRows} status={scanStatus} errors={scanErrors} cfg={cfg} onOpen={openMarket} onRefresh={refreshAll} />
