@@ -41,6 +41,14 @@ With today's rules: 190 trades in 8 years (about 2 a month), 26% won, and −9.3
 - Trades at the London or New York open: 67, 33% won, +15.4R. The other 123: −24.7R.
 - No setting tested came near a 70% win rate.
 
+### Looking for better rules
+
+About 130 changes (single rule changes, and pairs of must-have checks) were each scored on the first 70% of the prices, then checked on the last 30%. None held up. The best on the first 70%, the QM entry (+44.6R), lost 36.9R on the last 30%. Entries only at the London or New York open won 38% and made +17.9R on the first 70%, then won 23% and lost 2.6R. On made-up random prices with EUR/USD's volatility, the same search also found rules that made +9R to +40R on the first 70%, so a strong number on its own can be luck.
+
+### Small targets
+
+Capping the target at 0.5R raised the win rate to 58 to 59%, but lost 33.7R over the 8 years, since each loss cost about twice what a win paid. On random prices, 0.5R targets won 64% and also lost.
+
 ## How it's tested
 
 - The engine walks through the candles in order and only uses candles that have closed. Swings count once they're confirmed, zones exist once the candle that formed them has closed, and weekly structure only uses finished weeks.
