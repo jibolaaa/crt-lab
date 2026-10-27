@@ -29,7 +29,7 @@ const CLASSIC: Partial<Config> = {
   crt: ["day"], entry: "shift", timing: "either", entryWindow: 1, deeperSweeps: false, midCancels: true,
   freshFrom: "candle2", keyLevelKinds: ["ob", "breaker", "fvg"], zone: "obFvg", zoneInKiller: false,
   bias: "off", newsGuard: false, requireKeyLevel: false, stop: "sweep", stopBuffer: 0,
-  partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0
+  partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0, timeStop: true, minPct: 0
 };
 const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, ...CLASSIC, ...over });
 const run = (s: Series, c: Config) => runBacktest(prepare(s, c), c);

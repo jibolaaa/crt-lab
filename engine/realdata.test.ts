@@ -30,11 +30,13 @@ function lastBefore(s: Series, t: number) {
 const CLASSIC: Partial<Config> = {
   crt: ["day"], entry: "shift", timing: "either", entryWindow: 1, deeperSweeps: false, midCancels: true, freshFrom: "candle2",
   keyLevelKinds: ["ob", "breaker", "fvg"], zone: "obFvg", zoneInKiller: false, bias: "majority",
-  requireKeyLevel: false, stop: "sweep", stopBuffer: 0, partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0
+  requireKeyLevel: false, stop: "sweep", stopBuffer: 0, partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0,
+  timeStop: true, minPct: 0
 };
 
 const CONFIGS: [string, Partial<Config>][] = [
   ["today's rules", {}],
+  ["any percent, closed at the end of the next day", { minPct: 0, timeStop: true }],
   ["retest entry", { entry: "retest" }],
   ["QM entry", { entry: "qm" }],
   ["daily CRTs only", { crt: ["day"] }],

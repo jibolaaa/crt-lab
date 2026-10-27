@@ -14,9 +14,13 @@ const SHORT: Record<Trade["reason"], string> = {
   tp2: "Hit the target",
   stop: "Stopped out",
   breakeven: "Half at 50%, the rest back at entry",
-  time: "Closed at the time limit",
+  time: "Closed at the end of the next day",
   end: "Still open when the prices ended"
 };
+
+/** How a trade ended, in plain words. The time limit closes trades at the end of the day (week) after the entry's. */
+const exitText = (t: Trade) =>
+  t.reason === "time" ? `Closed at the end of the next ${t.tf === "week" ? "week" : "day"}` : SHORT[t.reason];
 
 const tone = (r: number) => (r > 0.005 ? "pos" : r < -0.005 ? "neg" : "flat");
 
@@ -69,7 +73,7 @@ export function Trades({ result, market, getCandles, money, moneyCfg, dt }: Prop
                 <span className={`dir ${t.dir === 1 ? "buy" : "sell"}`}>{t.dir === 1 ? "Buy" : "Sell"}</span>
                 <span className="t-main">
                   <span className="t-date">{fmtDay(t.entryT - 1)} {new Date(t.entryT * 1000).getUTCFullYear()} <span className="grade" aria-label={`${Math.round(t.pct)}% of the checklist`}>{Math.round(t.pct)}%</span></span>
-                  <span className="t-why">{t.tf === "week" ? "Weekly CRT. " : ""}{SHORT[t.reason]}</span>
+                  <span className="t-why">{t.tf === "week" ? "Weekly CRT. " : ""}{exitText(t)}</span>
                 </span>
                 <span className="t-end">
                   <span className={`t-r ${tone(t.r)}`}>{fmtR(t.r, 2)}</span>
@@ -145,7 +149,7 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, dt, onClose
       (t.partial ? `, with half off at ${px(t.tp1)}.` : ".")
   });
   if (t.partialT) steps.push({ t: t.partialT, text: "Half closed at 50%. The stop moved to the entry price." });
-  steps.push({ t: t.exitT, text: `${SHORT[t.reason]} at ${px(t.exit)}: ${fmtR(t.r, 2)} on the whole trade.` });
+  steps.push({ t: t.exitT, text: `${exitText(t)} at ${px(t.exit)}: ${fmtR(t.r, 2)} on the whole trade.` });
 
   return (
     <dialog
@@ -156,7 +160,7 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, dt, onClose
         <div className="sheet-head">
           <div>
             <h3 id="sheet-h">{long ? "Buy" : "Sell"} on {fmtDate(t.entryT - 1)}, {weekly ? "weekly" : "daily"} CRT, {Math.round(t.pct)}% of the checklist</h3>
-            <p className={tone(t.r)}>{fmtR(t.r, 2)}{money && !money.skipped ? ` (${fmtUsd(money.pnlUsd)})` : ""}. {SHORT[t.reason]}.</p>
+            <p className={tone(t.r)}>{fmtR(t.r, 2)}{money && !money.skipped ? ` (${fmtUsd(money.pnlUsd)})` : ""}. {exitText(t)}.</p>
           </div>
           <button className="close" onClick={() => ref.current?.close()} aria-label="Close">
             <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>

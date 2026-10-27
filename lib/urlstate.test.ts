@@ -14,11 +14,11 @@ describe("the address", () => {
     expect(DEFAULT_MARKET).toBe("frxEURUSD");
   });
   it("keeps must-have checks and the lowest percent", () => {
-    const hash = write({ mustHave: ["killzone", "discount"], minPct: 60 }, "frxXAUUSD");
+    const hash = write({ mustHave: ["killzone", "discount"], minPct: 70 }, "frxXAUUSD");
     const back = readHash("#" + hash);
     expect(back.marketId).toBe("frxXAUUSD");
     expect(back.cfg.mustHave).toEqual(["killzone", "discount"]);
-    expect(back.cfg.minPct).toBe(60);
+    expect(back.cfg.minPct).toBe(70);
   });
   it("drops checks it doesn't know", () => {
     expect(readHash("#must=killzone,nope").cfg.mustHave).toEqual(["killzone"]);

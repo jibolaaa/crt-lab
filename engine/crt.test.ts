@@ -33,7 +33,7 @@ const later = (rec: Record<string, OHLC>, days: number) =>
 const iso = (t: number) => new Date(t * 1000).toISOString();
 
 // Today's rules, without the key level, the news rest or the R percent, so each test can switch one on.
-const NEW: Partial<Config> = { crt: ["day"], entry: "qm", requireKeyLevel: false, newsGuard: false, maxPerDay: 0, lowRPct: 0, stopBuffer: 0, spread: 0.0001, weekendClosed: false };
+const NEW: Partial<Config> = { crt: ["day"], entry: "qm", requireKeyLevel: false, newsGuard: false, maxPerDay: 0, lowRPct: 0, stopBuffer: 0, spread: 0.0001, weekendClosed: false, timeStop: true, minPct: 0 };
 const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, ...NEW, ...over });
 const run = (s: Series, c: Config, partner: Series | null = null) => runBacktest(prepare(s, c, partner), c);
 const live = (s: Series, c: Config) => runBacktest(prepare(s, c), c).live!;

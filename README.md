@@ -10,7 +10,8 @@ For a sell (buys are the mirror image):
 2. **Key levels**, on the 4-hour, daily and weekly charts: an old high purged, an order block, a fair value gap or a rejection block. A level counts if nothing touched it before candle 1.
 3. **The zone.** After the sweep, an order block, a fair value gap, or both overlapping, inside the killer zone (between candle 1's body top and the sweep's tip). Daily CRTs use 1-hour zones, weekly CRTs 4-hour zones.
 4. **The entry**, from candle 3: price comes back into the zone, then a candle closes below the last swing low (the BOS). Daily CRTs look for the BOS on 5-minute candles, weekly CRTs on 15-minute candles. The built-in EUR/USD only has 15-minute prices, so its daily CRTs use 15-minute candles for the BOS. A retest entry (a limit at the order block the BOS left) and a QM entry are there to compare.
-5. **Stop and target.** The stop goes beyond the 1-hour order block (4-hour for weekly CRTs). The target is candle 1's low, capped at 5R. Targets under 2R are skipped. At most 3 new trades a day, and never two at once the same way on the same CRT.
+5. **Stop and target.** The stop goes beyond the 1-hour order block (4-hour for weekly CRTs). The target is candle 1's low, capped at 4R. Targets under 2R are skipped. Trades run until they hit the stop or the target. At most 3 new trades a day, and never two at once the same way on the same CRT.
+6. **The checklist.** Only setups that meet 60% or more of the checklist below are taken.
 
 ## The call
 
@@ -32,18 +33,18 @@ Under More detail, the same rules run with the target capped at 2R, 3R, 4R, 5R, 
 
 ## What it found on EUR/USD, 2014 to 2021
 
-With today's rules: 190 trades in 8 years (about 2 a month), 26% won, and −9.3R in all. The last 30% of the data, kept aside for checking, made +1.1R over 58 trades. The worst run cost 27.7R from a peak. At 1% risk a trade that's −12% over 8 years.
+With today's rules: 54 trades in 8 years (about 7 a year), 30% won, and +14.9R in all. The last 30% of the data, kept aside for checking, made +2.7R over 15 trades. The worst run cost 7R from a peak. At 1% risk a trade that's +15% over 8 years.
 
-- Weekly CRTs on their own: 53 trades, 32% won, +11.1R, and +3.6R on the last 30%. Daily CRTs: 137 trades, 24% won, −20.4R.
-- Targets: a 5R cap did best on the first 70% (−10.4R), then made +1.1R on the last 30%. A 2R cap won more often (30%) but lost 32.3R.
-- The retest entry: 217 trades, 21% won, −35.6R. The QM entry: 326 trades, 21% won, +7.7R, but −36.9R on the last 30%.
-- Higher percents didn't do better: 7 trades at 75% or more, 14% won.
-- Trades at the London or New York open: 67, 33% won, +15.4R. The other 123: −24.7R.
+- **The 60% lowest percent.** Results got better as the lowest percent went up: −18.3R with any percent, −3.3R from 50%, +14.9R from 60%. Above 60% there were few trades and they did worse. From 60%, both the first 70% and the last 30% made money. On 12 runs of random prices, the same rules averaged −4.2R and none did as well (the best made +10.0R).
+- **Holding to the stop or target** and closing at the end of the next day came out about the same with these rules (+14.9R and +15.0R).
+- **The 4R cap** did best on the first 70% (+12.2R), then made +2.7R on the last 30%.
+- **Weekly CRTs did the work:** 23 trades, 48% won, +25.4R. Daily CRTs lost 10.5R over 31 trades (16% won), but on this data their BOS uses 15-minute candles, not 5-minute ones.
+- These were picked by looking at the same 8 years, so they aren't proven. The fair test is the live prices on the page, which weren't used to pick them.
 - No setting tested came near a 70% win rate.
 
 ### Looking for better rules
 
-About 130 changes (single rule changes, and pairs of must-have checks) were each scored on the first 70% of the prices, then checked on the last 30%. None held up. The best on the first 70%, the QM entry (+44.6R), lost 36.9R on the last 30%. Entries only at the London or New York open won 38% and made +17.9R on the first 70%, then won 23% and lost 2.6R. On made-up random prices with EUR/USD's volatility, the same search also found rules that made +9R to +40R on the first 70%, so a strong number on its own can be luck.
+With the earlier rules (the time limit and any percent), about 130 changes (single rule changes, and pairs of must-have checks) were each scored on the first 70% of the prices, then checked on the last 30%. None held up. The best on the first 70%, the QM entry (+44.6R), lost 36.9R on the last 30%. Entries only at the London or New York open won 38% and made +17.9R on the first 70%, then won 23% and lost 2.6R. On made-up random prices with EUR/USD's volatility, the same search also found rules that made +9R to +40R on the first 70%, so a strong number on its own can be luck.
 
 ### Small targets
 
@@ -55,13 +56,13 @@ Capping the target at 0.5R raised the win rate to 58 to 59%, but lost 33.7R over
 - When one candle could have hit both the stop and a target, the stop is assumed to come first. A limit that fills on a candle that also reaches the stop counts as a loss.
 - Every trade pays the spread: buys open at the ask and close at the bid.
 - Higher-timeframe levels only count after the candle that completed them has closed, and zones stop counting once a candle of their own timeframe closes through them.
-- 207 automated tests: hand-built candle scenarios with exact expected results (5-minute BOS and retest entries, zones outside the killer zone, daily and weekly QM sells, deeper sweeps, closes outside the range, old-high key levels, SMT), key level detection, the dollar maths, the projection, a fake Deriv server for the price loader, and real-data checks that cut the prices off at each entry and confirm the same trade, key level and percent still come out.
+- 218 automated tests: hand-built candle scenarios with exact expected results (5-minute BOS and retest entries, zones outside the killer zone, daily and weekly QM sells, deeper sweeps, closes outside the range, old-high key levels, SMT), key level detection, the dollar maths, the projection, a fake Deriv server for the price loader, and real-data checks that cut the prices off at each entry and confirm the same trade, key level and percent still come out.
 
 ## Data
 
 - **Built in:** EUR/USD 15-minute bid candles from 2014 to 2021, from Dukascopy via the [FX-Data](https://github.com/FX-Data/FX-Data-EURUSD-DS) project. `scripts/build_eurusd.py` turns their MT4 history files into `public/data/eurusd-15m.bin`. February 2017 is missing in the source.
 - **Live:** Deriv's public price feed, loaded straight from the browser as 5-minute candles, up to a year back: EUR/USD, GBP/USD, AUD/USD, GBP/JPY, gold, silver, US Tech 100, US 500, Wall Street 30 and BTC/USD, plus a related market for SMT where one fits.
-- **Not included:** Deriv's synthetic indices, like Volatility 75. Deriv makes their prices with a random number generator and says any patterns in their history are coincidental, so there's no liquidity or session for CRT to read. On made-up random prices with V75's volatility, today's rules won 26% of trades and lost a little on average.
+- **Not included:** Deriv's synthetic indices, like Volatility 75. Deriv makes their prices with a random number generator and says any patterns in their history are coincidental, so there's no liquidity or session for CRT to read. On made-up random prices with V75's volatility, the rules won about 1 trade in 4 and lost a little on average.
 
 ## Run it
 

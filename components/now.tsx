@@ -210,9 +210,11 @@ function whyText(s: LiveSetup, px: (x: number) => string, cfg: Config) {
     case "alreadyIn": return "Already in a trade the same way.";
     case "pastMid": return "The entry would have been past the 50% level.";
     case "lowR": return `The target was only ${r}R away, under your ${cfg.minR}R minimum.`;
-    case "checks": return cfg.minPct > 0
-      ? `It didn't meet your must-have checks, or your ${cfg.minPct}% lowest percent.`
-      : "It didn't meet your must-have checks.";
+    case "checks":
+      if (!cfg.mustHave.length) return `It met less than ${cfg.minPct}% of your checklist, so it was skipped.`;
+      return cfg.minPct > 0
+        ? `It missed a must-have check, or met less than ${cfg.minPct}% of your checklist.`
+        : "It missed a must-have check.";
     case "lowRPct": return `The target was ${r}R away, and under ${cfg.fullR}R you need ${cfg.lowRPct}% or more of your checklist.`;
     default: return "This setup's time ran out.";
   }

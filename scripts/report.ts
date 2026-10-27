@@ -11,7 +11,8 @@ const p = prepare(s, DEFAULT_CONFIG);
 const CLASSIC: Partial<Config> = {
   crt: ["day"], entry: "shift", timing: "either", entryWindow: 1, deeperSweeps: false, midCancels: true, freshFrom: "candle2",
   keyLevelKinds: ["ob", "breaker", "fvg"], bias: "majority",
-  requireKeyLevel: false, stop: "sweep", stopBuffer: 0, partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0
+  requireKeyLevel: false, stop: "sweep", stopBuffer: 0, partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0,
+  timeStop: true, minPct: 0
 };
 const rows: [string, Partial<Config>][] = [
   ["Today's rules", {}],
@@ -26,11 +27,12 @@ const rows: [string, Partial<Config>][] = [
   ["  key level fresh before candle 2", { freshFrom: "candle2" }],
   ["  a deeper sweep cancels", { deeperSweeps: false }],
   ["  entries from candle 2", { timing: "either" }],
-  ["  2R to 3R needs 75%", { lowRPct: 75 }],
+  ["  any checklist percent", { minPct: 0 }],
+  ["  lowest percent 50", { minPct: 50 }],
   ["  no minimum R", { minR: 0, fullR: 0 }],
   ["  stop beyond the sweep", { stop: "sweep" }],
   ["  weekly structure as a gate", { bias: "structure" }],
-  ["  no day-after close", { timeStop: false }],
+  ["  close at the end of the next day", { timeStop: true }],
   ["First version's rules", CLASSIC]
 ];
 
@@ -67,7 +69,7 @@ for (const entry of ["shift", "retest", "qm"] as Config["entry"][]) {
   console.log(`  best on the first 70%: ${best.cap >= 1000 ? "none" : best.cap + "R"}, then ${f(best.late, 1)}R on the last 30%`);
 }
 
-for (const [name, over] of [["Today's rules", {}], ["No key level, no R limits (every setup)", { requireKeyLevel: false, minR: 0, fullR: 0 }]] as [string, Partial<Config>][]) {
+for (const [name, over] of [["Today's rules", {}], ["Any percent (every percent band)", { minPct: 0 }], ["No key level, no R limits, any percent (every setup)", { requireKeyLevel: false, minR: 0, fullR: 0, minPct: 0 }]] as [string, Partial<Config>][]) {
   const r = runBacktest(p, { ...DEFAULT_CONFIG, ...over });
   console.log(`\n${name}: funnel`, JSON.stringify(r.funnel));
   console.log("  by CRT:");

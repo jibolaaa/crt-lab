@@ -140,7 +140,7 @@ export const DEFAULT_CONFIG: Config = {
   newsGuard: true,
   sessions: [],
   partialAtTp1: false,
-  timeStop: true,
+  timeStop: false, // trades run until the stop or the target
   spread: 0.0001,
   stop: "ob",
   stopBuffer: 0.0001,
@@ -150,9 +150,9 @@ export const DEFAULT_CONFIG: Config = {
   minR: 2,
   fullR: 3,
   lowRPct: 0,
-  maxR: 5, // the best cap on the first 70% of EUR/USD 2014 to 2021 with BOS entries (see npm run report)
+  maxR: 4, // the best cap on the first 70% of EUR/USD 2014 to 2021 with these rules (see npm run report)
   mustHave: [],
-  minPct: 0,
+  minPct: 60, // only setups meeting 60% of the checklist: positive on both parts of EUR/USD 2014 to 2021, not proven
   maxPerDay: 3,
   dayStart: "utc",
   weekendClosed: true,
