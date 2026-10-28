@@ -9,6 +9,9 @@ export function variantsFor(cfg: Config): Variant[] {
   if (cfg.entry !== "shift") v.push({ key: "e-bos", label: "Enter on the BOS close", change: { entry: "shift" } });
   if (cfg.entry !== "retest") v.push({ key: "e-retest", label: "Enter on the retest after the BOS", change: { entry: "retest" } });
   if (cfg.entry !== "qm") v.push({ key: "e-qm", label: "Enter on a QM limit", change: { entry: "qm" } });
+  if (cfg.entry !== "qm") v.push(cfg.zone === "sweep"
+    ? { key: "zone", label: "Zone: an OB or FVG after the sweep", change: { zone: "any" } }
+    : { key: "zone", label: "Zone: the candle that made the sweep", change: { zone: "sweep" } });
   if (cfg.entry !== "qm") v.push(cfg.zoneInKiller
     ? { key: "kz", label: "Zone anywhere after the sweep", change: { zoneInKiller: false } }
     : { key: "kz", label: "Zone inside the killer zone", change: { zoneInKiller: true } });

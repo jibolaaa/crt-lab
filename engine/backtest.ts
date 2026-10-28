@@ -79,6 +79,8 @@ interface Setup {
   // shift entry
   zone: Zone | null;
   zoneCounted: boolean;
+  /** The sweep the candle-that-made-the-sweep zone was taken for, so it isn't taken again after it fails. */
+  zoneFor: number;
   touched: boolean;
   touchCounted: boolean;
   touchT: number;
@@ -578,6 +580,42 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
     countZone(st); // a zone (or QM limit) from candle 2 that is still there
   };
 
+  // The order block that made the sweep: the zone-chart candle with the sweep's tip, if it closed the
+  // right way (up at a swept high, down at a swept low); if not, the bigger candle around it that did;
+  // and if none did, the last right-way candle just before the tip. The whole candle is the zone, and
+  // its far side reaches the sweep's tip, so the stop goes past the tip.
+  const BIGGER = weekly ? [1, 2, 6] : [1, 2, 4]; // 4h, 8h, daily for weekly CRTs; 1h, 2h, 4h for daily ones
+  const sweepZone = (st: Setup, doneAt: number): Zone | null => {
+    const long = st.dir === 1;
+    const right = (o: number, c: number) => (long ? c < o : c > o);
+    let k = -1;
+    for (let x = zb.length - 1; x >= 0 && zb[x].t >= st.sweepZoneT; x--) if (zb[x].t === st.sweepZoneT) { k = x; break; }
+    if (k < 0) return null; // the candle with the tip hasn't closed yet
+    const make = (h: number, l: number, t: number, tfH: number, at: number): Zone => ({
+      top: h, bottom: l, t: at, tfH, sweep: true,
+      ob: { top: long ? h : Math.max(h, st.sweepPrice), bottom: long ? Math.min(l, st.sweepPrice) : l, t }
+    });
+    for (const m of BIGGER) {
+      const span = zoneDt * m;
+      const start = st.sweepZoneT - (((st.sweepZoneT % span) + span) % span);
+      const end = start + span;
+      if (doneAt < end) return null; // wait for this candle to close before looking further
+      // the bigger candle, from the zone-chart candles inside it (walking back from the newest)
+      let o = NaN, h = -Infinity, l = Infinity, c = NaN;
+      for (let x = zb.length - 1; x >= 0 && zb[x].t >= start; x--) {
+        const b = zb[x];
+        if (b.t >= end) continue;
+        if (Number.isNaN(c)) c = b.c;
+        o = b.o;
+        if (b.h > h) h = b.h;
+        if (b.l < l) l = b.l;
+      }
+      if (!Number.isNaN(o) && right(o, c)) return make(h, l, start, (zoneDt / 3600) * m, end);
+    }
+    for (let x = k; x >= Math.max(0, k - 6); x--) if (right(zb[x].o, zb[x].c)) return make(zb[x].h, zb[x].l, zb[x].t, zoneDt / 3600, doneAt);
+    return null;
+  };
+
   // ---- the zone chart (1-hour, or 4-hour for weekly CRTs) ----
   const onZone = (doneAt: number) => {
     const n1 = zb.length, b = zb[n1 - 1];
@@ -604,6 +642,23 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
     // zones for the BOS entries (and the OB and FVG check for all)
     for (const st of setups) {
       if (st.done || !st.swept || st.zone || cfg.zone === "off" || needsKey(st)) continue;
+      if (cfg.zone === "sweep") {
+        if (st.zoneFor === st.sweepT) continue; // its zone already failed: wait for a deeper sweep
+        let zone = sweepZone(st, doneAt);
+        if (!zone) continue; // still waiting for the candle to close
+        st.zoneFor = st.sweepT;
+        if (cfg.zoneInKiller) {
+          // only the part of the candle in the killer zone counts for the entry; the stop still goes past the tip
+          const top = st.dir === 1 ? Math.min(zone.top, st.bodyEdge) : zone.top;
+          const bottom = st.dir === 1 ? zone.bottom : Math.max(zone.bottom, st.bodyEdge);
+          zone = top > bottom ? { ...zone, top, bottom } : null;
+        }
+        if (zone) {
+          st.zone = zone;
+          if (cfg.entry !== "qm") countZone(st);
+        }
+        continue;
+      }
       const long = st.dir === 1;
       const opposite = (x: ZBar) => (long ? x.c < x.o : x.c > x.o);
       // the last opposite candle since the sweep, at or before index `to`
@@ -707,7 +762,7 @@ function runPass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, numb
             bodyEdge: dir === 1 ? Math.min(prev.o, prev.c) : Math.max(prev.o, prev.c), bias: struct,
             swept: false, sweepT: 0, sweepI: 0, sweepPrice: 0, sweepZoneT: 0,
             keyLevel: null, keyChecked: false, keyCounted: false, closedIn: false, insideCounted: false,
-            zone: null, zoneCounted: false, touched: false, touchCounted: false, touchT: 0,
+            zone: null, zoneCounted: false, zoneFor: -1, touched: false, touchCounted: false, touchT: 0,
             extreme: 0, extremeT: 0, extremeI: 0,
             heads: [], qm: null, rt: null, fillCounted: false,
             done: false, why: null, skipR: null, trade: null

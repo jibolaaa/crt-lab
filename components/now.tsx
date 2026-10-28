@@ -119,7 +119,7 @@ export function describeSetup(s: LiveSetup, px: (x: number) => string, cfg: Conf
   const swept = px(s.sweepPrice ?? edge);
   const unit = s.tf === "day" ? "day" : "week";
   const entryChart = s.tf === "week" || dt >= 900 ? "15-minute" : "5-minute";
-  const zoneChart = s.tf === "week" ? "4-hour" : "1-hour";
+  const zoneChart = s.zone?.tfH ? `${s.zone.tfH}-hour` : s.tf === "week" ? "4-hour" : "1-hour";
   const tomorrow = s.tf === "day" ? "tomorrow" : "next week";
   // an earlier sweep names its candles, since candle 1 isn't the current one's
   const from = (title: string) => (s.fromYesterday ? `${title} (${s.tf === "day" ? `${weekday(s.sweepDate)}'s` : `the week of ${dayMonth(s.sweepDate)}'s`} sweep)` : title);
@@ -161,9 +161,16 @@ export function describeSetup(s: LiveSetup, px: (x: number) => string, cfg: Conf
       };
     }
     case "key":
-      return { title: from("Swept into a key level"), text: `Took candle 1's ${side} (to ${swept})${level}. Waiting for a ${zoneChart} zone in the killer zone, ${killer}.` };
+      return cfg.zone === "sweep"
+        ? { title: from("Swept into a key level"), text: `Took candle 1's ${side} (to ${swept})${level}. Waiting for the ${zoneChart} candle that made the sweep to close, to mark its order block.` }
+        : { title: from("Swept into a key level"), text: `Took candle 1's ${side} (to ${swept})${level}. Waiting for a ${zoneChart} zone in the killer zone, ${killer}.` };
     case "zone":
-      return { title: from("Zone ready"), text: s.zone ? `${zoneChart} zone at ${px(s.zone.bottom)} to ${px(s.zone.top)}. Waiting for price to come back into it.` : "Waiting for price to come back into the zone." };
+      return {
+        title: from("Zone ready"),
+        text: !s.zone ? "Waiting for price to come back into the zone."
+          : s.zone.sweep ? `The ${zoneChart} candle that made the sweep, ${px(s.zone.bottom)} to ${px(s.zone.top)}, is the order block. Waiting for price to come back into it.`
+            : `${zoneChart} zone at ${px(s.zone.bottom)} to ${px(s.zone.top)}. Waiting for price to come back into it.`
+      };
     case "touched":
       return {
         title: from("Watch for the BOS"),

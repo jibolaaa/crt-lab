@@ -176,8 +176,8 @@ export function Settings(p: Props) {
             <>
               <Choice
                 legend="Zone" name="zone" value={c.zone} onChange={(v) => u({ zone: v })}
-                options={[["any", "OB, FVG or both"], ["obFvg", "OB with an FVG"], ["fvg", "FVG only"], ["ob", "OB only"], ["off", "No zone"]]}
-                hint="A 1-hour zone (4-hour for weekly CRTs) that forms after the sweep. Price has to come back into it before the BOS."
+                options={[["sweep", "The candle that made the sweep"], ["any", "OB, FVG or both"], ["obFvg", "OB with an FVG"], ["fvg", "FVG only"], ["ob", "OB only"], ["off", "No zone"]]}
+                hint="The candle that made the sweep: the last up candle at a swept high (down candle at a swept low) on the 1-hour chart. If it closed the other way, the 2-hour, then 4-hour, candle that made it (4-hour, 8-hour and daily for weekly CRTs). The others are zones that form after the sweep. Price has to come back into the zone before the BOS, and the stop goes past the order block."
               />
               <Toggle
                 label="Zone inside the killer zone"

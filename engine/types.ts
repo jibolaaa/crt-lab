@@ -28,7 +28,13 @@ export interface Bar {
 
 export type BiasMode = "off" | "weeklyCrt" | "structure" | "premiumDiscount" | "majority" | "allAgree";
 /** "any": an order block or a gap, joined when they overlap. "obFvg": a gap with the order block before it. */
-export type ZoneMode = "any" | "obFvg" | "fvg" | "ob" | "off";
+/**
+ * "sweep": the order block is the candle that made the sweep (the last up candle at a swept high,
+ * the last down candle at a swept low), the whole candle. When that 1-hour candle closed the other
+ * way, the 2-hour and then the 4-hour candle that made the sweep is used instead (4-hour, 8-hour and
+ * daily for weekly CRTs).
+ */
+export type ZoneMode = "sweep" | "any" | "obFvg" | "fvg" | "ob" | "off";
 export type Timing = "sameDay" | "nextDay" | "either";
 export type Session = "asian" | "london" | "newyork";
 export type DayStart = "utc" | "nyClose";
@@ -139,7 +145,7 @@ export const DEFAULT_CONFIG: Config = {
   bias: "off",
   side: "auto",
   driftUp: false,
-  zone: "any",
+  zone: "sweep",
   zoneInKiller: true,
   timing: "either", // entries in candle 2 (after the sweep) or candle 3
   entryWindow: 3,
@@ -178,6 +184,10 @@ export interface Zone {
   t: number; // when it was formed (end of the candle that completed it)
   fvg?: { top: number; bottom: number; t: number };
   ob?: { top: number; bottom: number; t: number };
+  /** Hours per candle of the chart the zone came from. */
+  tfH?: number;
+  /** The candle that made the sweep. */
+  sweep?: boolean;
 }
 
 export interface KeyLevelInfo { tf: Tf; kind: LevelKind; top: number; bottom: number; t: number }

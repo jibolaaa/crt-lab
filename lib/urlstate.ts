@@ -9,7 +9,7 @@ const ONE_OF = {
   bias: ["off", "weeklyCrt", "structure", "premiumDiscount", "majority", "allAgree"],
   side: ["auto", "both", "buys", "sells"],
   entry: ["shift", "retest", "qm"],
-  zone: ["any", "obFvg", "fvg", "ob", "off"],
+  zone: ["sweep", "any", "obFvg", "fvg", "ob", "off"],
   timing: ["sameDay", "nextDay", "either"],
   stop: ["sweep", "pullback", "ob"],
   dayStart: ["utc", "nyClose"],

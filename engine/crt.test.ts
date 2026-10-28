@@ -328,6 +328,54 @@ describe("a BOS sell on 5-minute candles in a 1-hour zone", () => {
   });
 });
 
+describe("the candle that made the sweep as the order block", () => {
+  const sweep = (over: Partial<Config> = {}) => cfg({ entry: "shift", zone: "sweep", ...over });
+  const notDay1 = Object.fromEntries(Object.entries(bosSell).filter(([k]) => !k.startsWith("1:")));
+  it("takes the 1-hour up candle that made the high, the whole candle, with the stop past the tip", () => {
+    const res = run(make5(bosSell), sweep());
+    expect(res.trades.length).toBe(1);
+    const tr = res.trades[0];
+    expect(tr.zone).toMatchObject({ top: 1.112, bottom: 1.1085, tfH: 1, sweep: true });
+    expect(iso(tr.zone!.t)).toBe(iso(DAY2 - 86400 + 9 * 3600)); // known once that hour closed
+    expect(tr.entry).toBeCloseTo(1.1066, 6);
+    expect(tr.stop).toBeCloseTo(1.1121, 6);
+  });
+  it("goes up to the 2-hour candle when the 1-hour one that made the high closed down", () => {
+    const s = make5({
+      ...notDay1,
+      "1:07:00": [1.108, 1.1085, 1.108, 1.1085],
+      "1:08:00": [1.1085, 1.11, 1.1085, 1.11], // up, no sweep yet
+      "1:09:00": [1.11, 1.112, 1.1095, 1.1098], // makes the high, closes down a little
+      "1:10:00": [1.1098, 1.1098, 1.1074, 1.1075]
+    });
+    const tr = run(s, sweep()).trades[0];
+    expect(tr.zone).toMatchObject({ top: 1.112, bottom: 1.1085, tfH: 2, sweep: true });
+    expect(iso(tr.zone!.t)).toBe(iso(DAY2 - 86400 + 10 * 3600)); // the 8:00 to 10:00 candle
+    expect(tr.entry).toBeCloseTo(1.1066, 6);
+    expect(tr.stop).toBeCloseTo(1.1121, 6);
+  });
+  it("uses the last up candle before the high when even the 4-hour one closed down, with the stop still past the tip", () => {
+    const s = make5({
+      ...notDay1,
+      "1:06:00": [1.108, 1.1095, 1.108, 1.1095], // up
+      "1:07:00": [1.1095, 1.1095, 1.109, 1.1092], // down a little
+      "1:08:00": [1.1092, 1.112, 1.107, 1.1072] // makes the high and closes down: 1, 2 and 4 hours all closed down
+    });
+    const tr = run(s, sweep()).trades[0];
+    expect(tr.zone).toMatchObject({ top: 1.1095, bottom: 1.108, tfH: 1, sweep: true });
+    expect(iso(tr.zone!.t)).toBe(iso(DAY2 - 86400 + 12 * 3600)); // decided once the 4-hour candle closed
+    expect(tr.stop).toBeCloseTo(1.1121, 6); // past the sweep's tip, not the candle's high
+  });
+  it("keeps only the part of the candle inside the killer zone, with the stop still past the tip", () => {
+    // the 8:00 candle starts below candle 1's body top (1.1080)
+    const s = make5({ ...bosSell, "1:08:00": [1.1075, 1.112, 1.1075, 1.111] });
+    const tr = run(s, sweep()).trades[0];
+    expect(tr.zone).toMatchObject({ top: 1.112, bottom: 1.108, sweep: true });
+    expect(tr.stop).toBeCloseTo(1.1121, 6);
+    expect(run(s, sweep({ zoneInKiller: false })).trades[0].zone).toMatchObject({ top: 1.112, bottom: 1.1075 });
+  });
+});
+
 function upTo5(s: Series, key: string): Series {
   const [d, hh, mm] = key.split(":").map(Number);
   const n = d * 288 + hh * 12 + mm / 5 + 1;

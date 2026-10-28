@@ -118,7 +118,7 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, dt, onClose
   // a Monday's candle starts on Sunday evening, so name the day by its middle
   const rangeDay = weekly ? "Week" : fmtDay(t.rangeDayT + 12 * 3600).split(" ")[0];
   const entryChart = weekly || dt >= 900 ? "15-minute" : "5-minute";
-  const zoneChart = weekly ? "4-hour" : "1-hour";
+  const zoneChart = t.zone?.tfH ? `${t.zone.tfH}-hour` : weekly ? "4-hour" : "1-hour";
   const steps: { t?: number; day?: string; text: string }[] = [
     { day: rangeDay, text: `Candle 1 (${weekly ? `the week of ${fmtDate(t.rangeDayT + 12 * 3600)}` : "the range day"}): high ${px(t.rangeHigh)}, low ${px(t.rangeLow)}, 50% at ${px(t.mid)}.` },
     {
@@ -135,7 +135,12 @@ function TradeSheet({ trade: t, market, getCandles, money, moneyCfg, dt, onClose
   } else {
     if (t.zone) {
       const kind = t.zone.fvg && t.zone.ob ? "order block and gap" : t.zone.fvg ? "gap" : "order block";
-      steps.push({ t: t.zone.t, text: `${zoneChart} ${kind} finished forming: ${px(t.zone.bottom)} to ${px(t.zone.top)}.` });
+      steps.push({
+        t: t.zone.t,
+        text: t.zone.sweep
+          ? `The ${zoneChart} candle that made the sweep closed: ${px(t.zone.bottom)} to ${px(t.zone.top)}, the order block.`
+          : `${zoneChart} ${kind} finished forming: ${px(t.zone.bottom)} to ${px(t.zone.top)}.`
+      });
       if (t.touchT) steps.push({ t: t.touchT, text: "Price came back into the zone." });
     }
     const r = t.retest;
