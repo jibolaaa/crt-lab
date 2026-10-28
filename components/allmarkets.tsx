@@ -2,9 +2,10 @@
 import { useMemo, useState } from "react";
 import type { Config } from "../engine";
 import { MARKETS, marketById } from "../lib/markets";
-import { combine, liveList, type ScanRow } from "../lib/scan";
+import { combine, forMonth, liveList, monthsOf, type ScanRow } from "../lib/scan";
 import { CRT_LABEL } from "../lib/confluences";
-import { fmtDate, fmtDay, fmtPrice, fmtR, fmtTime } from "../lib/format";
+import { fmtDate, fmtDay, fmtMonth, fmtPrice, fmtR, fmtTime } from "../lib/format";
+import { Choice } from "./controls";
 import { CallView, describeSetup } from "./now";
 import { exitText } from "./trades";
 
@@ -26,10 +27,14 @@ interface Props {
 /** Every chosen market at once: what's close to an entry right now, and how the rules did on each. */
 export function AllMarkets(p: Props) {
   const [shown, setShown] = useState(25);
-  const rows = p.rows;
+  const [month, setMonth] = useState("all");
+  const months = useMemo(() => monthsOf(p.rows), [p.rows]);
+  const picked = month !== "all" && months.includes(month) ? month : "all";
+  const rows = useMemo(() => (picked === "all" ? p.rows : forMonth(p.rows, picked)), [p.rows, picked]);
   const total = useMemo(() => combine(rows), [rows]);
-  const live = useMemo(() => liveList(rows, p.cfg.crt), [rows, p.cfg.crt]);
-  const asOf = rows.reduce((a, r) => Math.max(a, r.live?.asOf ?? 0), 0);
+  const monthName = (ym: string) => fmtMonth(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5)) - 1, 15) / 1000);
+  const live = useMemo(() => liveList(p.rows, p.cfg.crt), [p.rows, p.cfg.crt]);
+  const asOf = p.rows.reduce((a, r) => Math.max(a, r.live?.asOf ?? 0), 0);
   const random = p.ids.some((id) => marketById(id).random);
   const toggle = (id: string, on: boolean) => p.setIds(on ? [...p.ids.filter((x) => x !== id), id] : p.ids.filter((x) => x !== id));
   const byTotal = [...rows].sort((a, b) => b.totalR - a.totalR);
@@ -92,7 +97,13 @@ export function AllMarkets(p: Props) {
       </section>
 
       <section className="sec-verdict" aria-labelledby="all-verdict-h" aria-live="polite">
-        <h2 className="sec" id="all-verdict-h">How your rules did on all markets</h2>
+        <h2 className="sec" id="all-verdict-h">How your rules did on all markets{picked !== "all" ? ` in ${monthName(picked)}` : ""}</h2>
+        {months.length > 1 && (
+          <Choice
+            legend="Month" name="month" value={picked} onChange={setMonth}
+            options={[["all", "All"], ...months.slice(0, 6).map((ym) => [ym, monthName(ym).split(" ")[0]] as [string, string])]}
+          />
+        )}
         {total.trades > 0 ? (
           <>
             <p className="verdict-line">
@@ -111,7 +122,7 @@ export function AllMarkets(p: Props) {
           <p className="sec-note">Tap a market to see its setups, trades and charts. Each one goes back as far as Deriv sends.</p>
           <div className="table-wrap">
             <table className="grid">
-              <thead><tr><th>Market</th><th>Since</th><th>Trades</th><th>Won</th><th>Total</th></tr></thead>
+              <thead><tr><th>Market</th><th>{picked === "all" ? "Since" : "From"}</th><th>Trades</th><th>Won</th><th>Total</th></tr></thead>
               <tbody>
                 {byTotal.map((r) => (
                   <tr key={r.marketId}>

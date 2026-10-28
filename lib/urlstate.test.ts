@@ -10,8 +10,8 @@ describe("the address", () => {
   it("stays empty for the default market and rules", () => {
     expect(write({})).toBe("");
   });
-  it("opens on US Tech 100", () => {
-    expect(DEFAULT_MARKET).toBe("OTC_NDX");
+  it("opens on Volatility 25", () => {
+    expect(DEFAULT_MARKET).toBe("R_25");
   });
   it("keeps the trade direction", () => {
     expect(readHash("#" + write({ side: "both" })).cfg.side).toBe("both");

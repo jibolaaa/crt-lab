@@ -22,11 +22,11 @@ Under Change rules you can make any check a must-have, or set a lowest percent. 
 
 ## Right now
 
-On a live Deriv market (it opens on US Tech 100), the page reads each CRT at the last closed candle: candle 1's range, whether candle 2 has swept it into a key level and closed back inside, the killer zone, any zone waiting for price, and any limit or trade with its stop, target and percent.
+On a live Deriv market (it opens on Volatility 25), the page reads each CRT at the last closed candle: candle 1's range, whether candle 2 has swept it into a key level and closed back inside, the killer zone, any zone waiting for price, and any limit or trade with its stop, target and percent.
 
 ## All markets
 
-Pick the markets you trade (it starts with the indices: US Tech 100, US 500, Wall Street 30 and Volatility 25, 50 and 75) and the page loads each one from Deriv, then runs the same rules on all of them: every setup close to an entry right now, in one list with the most urgent first; the combined result with trades a week across the markets; each market's own result; and every trade, newest first. Tap a market to open it on its own. Each market uses its own usual spread and stop room, and the rules from Change rules.
+Pick the markets you trade (it starts with Volatility 25, 50 and 75 and their 1s versions) and the page loads each one from Deriv, then runs the same rules on all of them: every setup close to an entry right now, in one list with the most urgent first; the combined result with trades a week across the markets; each market's own result; and every trade, newest first. Tap a market to open it on its own. A month switch shows the result for one month at a time. Each market uses its own usual spread and stop room, and the rules from Change rules.
 
 ## Which target
 
@@ -74,7 +74,7 @@ Capping the target at 0.5R raised the win rate to 58 to 59%, but lost 33.7R over
 - When one candle could have hit both the stop and a target, the stop is assumed to come first. A limit that fills on a candle that also reaches the stop counts as a loss.
 - Every trade pays the spread: buys open at the ask and close at the bid.
 - Higher-timeframe levels only count after the candle that completed them has closed, and zones stop counting once a candle of their own timeframe closes through them.
-- 232 automated tests: hand-built candle scenarios with exact expected results (5-minute BOS and retest entries, the candle that made the sweep as the order block, zones outside the killer zone, daily and weekly QM sells, deeper sweeps, closes outside the range, old-high key levels, SMT), key level detection, the dollar maths, adding up All markets, a fake Deriv server for the price loader, and real-data checks that cut the prices off at each entry and confirm the same trade, key level and percent still come out.
+- 234 automated tests: hand-built candle scenarios with exact expected results (5-minute BOS and retest entries, the candle that made the sweep as the order block, zones outside the killer zone, daily and weekly QM sells, deeper sweeps, closes outside the range, old-high key levels, SMT), key level detection, the dollar maths, adding up All markets and cutting it to one month, a fake Deriv server for the price loader, and real-data checks that cut the prices off at each entry and confirm the same trade, key level and percent still come out.
 
 ## Data
 

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG, prepare, runBacktest, seriesFromBuffer, type LiveSetup } from "../engine";
 import { ALL_DEFAULT, MARKETS, marketById } from "./markets";
-import { combine, liveList, marketCfg, toScanRow, type ScanRow, type ScanTrade } from "./scan";
+import { combine, forMonth, liveList, marketCfg, monthsOf, toScanRow, type ScanRow, type ScanTrade } from "./scan";
 
 const buf = readFileSync(join(__dirname, "../public/data/eurusd-15m.bin"));
 const s = seriesFromBuffer(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
@@ -93,5 +93,26 @@ describe("right now across markets", () => {
   });
   it("only shows the CRTs in the rules", () => {
     expect(liveList(rows, ["day"]).map((x) => x.setup.stage)).toEqual(["limit", "zone"]);
+  });
+});
+
+describe("one month on its own", () => {
+  const SEP = Date.UTC(2026, 8, 1) / 1000, OCT = Date.UTC(2026, 9, 1) / 1000;
+  const t = (marketId: string, at: number, r: number) => trade(marketId, at + 3600, at + 7200, r);
+  const rows = [
+    { ...row("R_25", 0, [t("R_25", SEP - 86400, 1), t("R_25", SEP + 86400, 2), t("R_25", SEP + 3 * 86400, -1), t("R_25", OCT + 86400, -1)]), from: SEP - 20 * 86400, to: OCT + 10 * 86400 },
+    { ...row("R_50", 0, [t("R_50", SEP + 5 * 86400, -1)]), from: SEP + 14 * 86400, to: OCT + 10 * 86400 }
+  ];
+  it("lists the months with trades, newest first", () => {
+    expect(monthsOf(rows)).toEqual(["2026-10", "2026-09", "2026-08"]);
+  });
+  it("keeps only that month's trades, over the part of the month each market's prices cover", () => {
+    const sep = forMonth(rows, "2026-09");
+    expect(sep.map((r) => [r.marketId, r.trades, r.wins, r.totalR])).toEqual([["R_25", 2, 1, 1], ["R_50", 1, 0, -1]]);
+    expect(sep[0].from).toBe(SEP);
+    expect(sep[0].to).toBe(OCT);
+    expect(sep[1].from).toBe(SEP + 14 * 86400); // its prices start mid-month
+    const c = combine(sep);
+    expect(c).toMatchObject({ trades: 3, wins: 1, totalR: 0 });
   });
 });

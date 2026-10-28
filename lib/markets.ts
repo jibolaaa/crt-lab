@@ -66,10 +66,10 @@ export const MARKETS: Market[] = [
 ];
 
 /** The page opens on a live market, so "right now" has something to read. */
-export const DEFAULT_MARKET = "OTC_NDX";
+export const DEFAULT_MARKET = "R_25";
 
-/** The markets the All markets view starts with: the indices. */
-export const ALL_DEFAULT = ["OTC_NDX", "OTC_SPC", "OTC_DJI", "R_25", "R_50", "R_75"];
+/** The markets the All markets view starts with: the Volatility indices, for now. */
+export const ALL_DEFAULT = ["R_25", "R_50", "R_75", "1HZ25V", "1HZ50V", "1HZ75V"];
 
 /**
  * Live prices load as far back as Deriv sends 5-minute candles. This is only the oldest date asked

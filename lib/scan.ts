@@ -102,3 +102,29 @@ export function liveList(rows: ScanRow[], crt: CrtTf[]): LiveRow[] {
   }
   return out.sort((a, b) => rank(a.setup) - rank(b.setup));
 }
+
+/** "2026-09" for a trade entered in September 2026 (UTC). */
+export function monthKey(entryT: number) {
+  const d = new Date((entryT - 1) * 1000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** The months that have trades, newest first. */
+export function monthsOf(rows: ScanRow[]) {
+  return [...new Set(rows.flatMap((r) => r.list.map((t) => monthKey(t.entryT))))].sort().reverse();
+}
+
+/** Each market's result for one month only: the trades entered that month, over the part of it the prices cover. */
+export function forMonth(rows: ScanRow[], ym: string): ScanRow[] {
+  const [y, m] = ym.split("-").map(Number);
+  const start = Date.UTC(y, m - 1, 1) / 1000, end = Date.UTC(y, m, 1) / 1000;
+  return rows.map((r) => {
+    const list = r.list.filter((t) => monthKey(t.entryT) === ym);
+    const from = Math.max(r.from, start), to = Math.max(from, Math.min(r.to, end));
+    return {
+      ...r, from, to, list, trades: list.length,
+      wins: list.filter((t) => t.r > 0.005).length,
+      totalR: list.reduce((a, t) => a + t.r, 0)
+    };
+  });
+}
