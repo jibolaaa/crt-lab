@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { prepare, runBacktest } from "./backtest";
-import { DEFAULT_CONFIG, type Config, type Series } from "./types";
+import { CLASSIC_CONFIG, type Config, type Series } from "./types";
 
 // Same building blocks as backtest.test.ts: days of 15-minute candles from
 // Mon 8 Jan 2024, flat unless listed as "day:HH:MM" -> [open, high, low, close].
@@ -33,7 +33,7 @@ const CLASSIC: Partial<Config> = {
   bias: "off", newsGuard: false, requireKeyLevel: false, stop: "sweep", stopBuffer: 0,
   partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0, timeStop: true, minPct: 0
 };
-const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, ...CLASSIC, ...over });
+const cfg = (over: Partial<Config> = {}): Config => ({ ...CLASSIC_CONFIG, ...CLASSIC, ...over });
 const live = (s: Series, c: Config) => runBacktest(prepare(s, c), c).live!;
 const buy = (l: ReturnType<typeof live>) => l.setups.find((x) => x.dir === 1 && !x.fromYesterday);
 

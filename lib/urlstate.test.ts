@@ -10,8 +10,13 @@ describe("the address", () => {
   it("stays empty for the default market and rules", () => {
     expect(write({})).toBe("");
   });
-  it("opens on Volatility 25", () => {
-    expect(DEFAULT_MARKET).toBe("R_25");
+  it("opens on GBP/JPY", () => {
+    expect(DEFAULT_MARKET).toBe("frxGBPJPY");
+  });
+  it("keeps Model 1's settings, and switching back to the old rules", () => {
+    const back = readHash("#" + write({ crt: ["h4"], bias: "weeklySwings", keyFit: false, keyInside: false, sweepWindow: 0, obStop: "candle", entryChart: "m15", keyLevelKinds: ["flip", "ob"] }));
+    expect(back.cfg).toMatchObject({ crt: ["h4"], bias: "weeklySwings", keyFit: false, keyInside: false, sweepWindow: 0, obStop: "candle", entryChart: "m15", keyLevelKinds: ["flip", "ob"] });
+    expect(readHash("#" + write({ entry: "shift", crt: ["day", "week"], bias: "off" })).cfg).toMatchObject({ entry: "shift", crt: ["day", "week"], bias: "off" });
   });
   it("keeps the trade direction", () => {
     expect(readHash("#" + write({ side: "both" })).cfg.side).toBe("both");

@@ -2,11 +2,11 @@
 // Run from the project folder: npm run report
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CONFLUENCES, DEFAULT_CONFIG, prepare, runBacktest, seriesFromBuffer, compound, type Config, type Trade } from "../engine/index";
+import { CONFLUENCES, CLASSIC_CONFIG, prepare, runBacktest, seriesFromBuffer, compound, type Config, type Trade } from "../engine/index";
 
 const buf = readFileSync(join(process.cwd(), "public/data/eurusd-15m.bin"));
 const s = seriesFromBuffer(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-const p = prepare(s, DEFAULT_CONFIG);
+const p = prepare(s, CLASSIC_CONFIG);
 
 const CLASSIC: Partial<Config> = {
   crt: ["day"], entry: "shift", timing: "either", entryWindow: 1, deeperSweeps: false, midCancels: true, freshFrom: "candle2",
@@ -40,7 +40,7 @@ const f = (x: number | null, d = 2) => (x === null ? "inf" : x.toFixed(d));
 const pad = (x: string, n: number) => x.padEnd(n);
 console.log(pad("rules", 36), "trades  /mo   win%   avgR   totalR  PF    maxDD  | last 30%: n  win%  avgR  totalR | 1%risk growth  maxDD%");
 for (const [name, over] of rows) {
-  const cfg: Config = { ...DEFAULT_CONFIG, ...over };
+  const cfg: Config = { ...CLASSIC_CONFIG, ...over };
   const r = runBacktest(p, cfg);
   const a = r.all, u = r.unseen;
   const g = compound(r.trades, 1);
@@ -62,7 +62,7 @@ for (const entry of ["shift", "retest", "qm"] as Config["entry"][]) {
   console.log(`\nTarget caps, ${entry} entry: cap  trades  win%  avgR  total | first 70% | last 30%`);
   let best = { cap: 0, seen: -Infinity, late: 0 };
   for (const cap of [2, 3, 4, 5, 6, 8, 10, 1000]) {
-    const r = runBacktest(p, { ...DEFAULT_CONFIG, entry, maxR: cap });
+    const r = runBacktest(p, { ...CLASSIC_CONFIG, entry, maxR: cap });
     if (r.seen.totalR > best.seen) best = { cap, seen: r.seen.totalR, late: r.unseen.totalR };
     console.log(`  ${(cap >= 1000 ? "none" : cap + "R").padEnd(5)} ${String(r.all.trades).padStart(6)} ${(r.all.winRate * 100).toFixed(0).padStart(4)}% ${f(r.all.avgR).padStart(5)} ${f(r.all.totalR, 1).padStart(6)} | ${f(r.seen.totalR, 1).padStart(6)} | ${f(r.unseen.totalR, 1).padStart(6)}`);
   }
@@ -70,7 +70,7 @@ for (const entry of ["shift", "retest", "qm"] as Config["entry"][]) {
 }
 
 for (const [name, over] of [["Today's rules", {}], ["Any percent (every percent band)", { minPct: 0 }], ["No key level, no R limits, any percent (every setup)", { requireKeyLevel: false, minR: 0, fullR: 0, minPct: 0 }]] as [string, Partial<Config>][]) {
-  const r = runBacktest(p, { ...DEFAULT_CONFIG, ...over });
+  const r = runBacktest(p, { ...CLASSIC_CONFIG, ...over });
   console.log(`\n${name}: funnel`, JSON.stringify(r.funnel));
   console.log("  by CRT:");
   for (const tf of ["day", "week"]) console.log(`    ${tf.padEnd(5)} ${summarize(r.trades.filter((t) => t.tf === tf))}`);

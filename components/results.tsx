@@ -11,10 +11,10 @@ import { verdict } from "../lib/verdict";
 const tone = (x: number, eps = 0.05) => (x > eps ? "pos" : x < -eps ? "neg" : "");
 
 // ---------- the verdict and equity curve ----------
-export function Verdict({ result, data, market, failed, money, moneyCfg }: {
-  result: RunResult | null; data: DataInfo | null; market: Market; failed: boolean; money: MoneyResult | null; moneyCfg: MoneyCfg;
+export function Verdict({ result, data, market, failed, money, moneyCfg, model1 = false }: {
+  result: RunResult | null; data: DataInfo | null; market: Market; failed: boolean; money: MoneyResult | null; moneyCfg: MoneyCfg; model1?: boolean;
 }) {
-  const v = result ? verdict(result) : null;
+  const v = result ? verdict(result, model1) : null;
   return (
     <section className="sec-verdict" aria-labelledby="verdict-h" aria-live="polite">
       <h2 className="sec" id="verdict-h">How your rules did{result ? ` on ${fmtSpan(result.from, result.to)} of ${market.name}` : ""}</h2>
@@ -232,6 +232,7 @@ export function Matters({ result, rows }: { result: RunResult | null; rows: Matt
 // ---------- how candles became trades ----------
 export function Funnel({ result, cfg }: { result: RunResult | null; cfg: Config }) {
   if (!result) return null;
+  if (cfg.entry === "model1") return <FunnelM1 result={result} cfg={cfg} />;
   const f = result.funnel;
   const max = Math.max(1, f.days, f.sweeps);
   const what = cfg.crt.length === 2 ? "Days and weeks" : cfg.crt[0] === "week" ? "Weeks" : "Days";
@@ -280,6 +281,47 @@ export function Funnel({ result, cfg }: { result: RunResult | null; cfg: Config 
   );
 }
 
+function FunnelM1({ result, cfg }: { result: RunResult; cfg: Config }) {
+  const f = result.funnel;
+  const max = Math.max(1, f.days);
+  const items: { label: string; n: number; side?: string }[] = [
+    { label: "Ranges with an inside candle", n: f.days },
+    {
+      label: cfg.bias === "off" ? "A candle took the range's high or low" : "A candle took the range's high or low, with the structure",
+      n: f.sweeps,
+      side: cfg.bias === "off" ? undefined : `${fmtInt(f.biasBlocked)} ranges and directions were against the structure or had none, so they were skipped.`
+    }
+  ];
+  if (cfg.requireKeyLevel) items.push({ label: cfg.keyFit ? "The sweep reached a key level that fits the structure" : "The sweep reached a fresh key level", n: f.keyLevels });
+  items.push({ label: "An MSS on the entry chart", n: f.closedInside, side: "A new tip starts the entry over, so one sweep can have more than one MSS." });
+  items.push({ label: "The first pullback left an inducement: limit set at the order block", n: f.zones });
+  items.push({ label: "Price took the inducement and reached the limit", n: f.touches });
+  const skipped = [
+    f.skippedNews ? `${fmtInt(f.skippedNews)} on jobs report days` : "",
+    f.skippedSession ? `${fmtInt(f.skippedSession)} outside your entry times` : "",
+    f.skippedPastMid ? `${fmtInt(f.skippedPastMid)} past the 50% level` : "",
+    f.skippedLowR ? `${fmtInt(f.skippedLowR)} with the target too close in R` : "",
+    f.skippedDailyCap ? `${fmtInt(f.skippedDailyCap)} over the daily limit` : "",
+    f.skippedOverlap ? `${fmtInt(f.skippedOverlap)} while already in a trade the same way` : ""
+  ].filter(Boolean);
+  items.push({ label: "Trades taken", n: f.entries, side: skipped.length ? `Skipped at the entry: ${skipped.join(", ")}.` : undefined });
+  return (
+    <section className="sec-funnel" aria-labelledby="funnel-h">
+      <h2 className="sec" id="funnel-h">From candles to trades</h2>
+      <ol className="funnel">
+        {items.map((it, i) => (
+          <li key={it.label} className={i === items.length - 1 ? "last" : ""}>
+            <span className="f-label">{it.label}</span>
+            <span className="f-num">{fmtInt(it.n)}</span>
+            <span className="f-track" aria-hidden><span className="f-fill" style={{ display: "block", width: `${(Math.min(it.n, max) / max) * 100}%` }} /></span>
+            {it.side && <span className="f-side">{it.side}</span>}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 // ---------- does a higher percent help? ----------
 const BANDS: [string, number, number][] = [["75% or more", 75, 101], ["50% to 74%", 50, 75], ["Under 50%", 0, 50]];
 const sum = (ts: Trade[]) => ts.reduce((a, t) => a + t.r, 0);
@@ -287,6 +329,7 @@ const sum = (ts: Trade[]) => ts.reduce((a, t) => a + t.r, 0);
 export function Grades({ result }: { result: RunResult | null }) {
   if (!result || !result.all.trades) return null;
   const ts = result.trades;
+  if (ts.some((t) => t.model === "model1")) return <BySize trades={ts} />;
   const cell = (list: Trade[]) => (list.length ? <span className={tone(sum(list) / list.length, 0.005)}>{fmtR(sum(list) / list.length, 2)}</span> : "–");
   const days = ts.filter((t) => t.tf === "day"), weeks = ts.filter((t) => t.tf === "week");
   return (
@@ -356,6 +399,35 @@ export function Grades({ result }: { result: RunResult | null }) {
                 </tr>
               );
             })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+/** Model 1 has no checklist: how each range size did instead. */
+function BySize({ trades }: { trades: Trade[] }) {
+  const rows = ([["4-hour ranges", "h4"], ["Daily ranges", "day"], ["Weekly ranges", "week"]] as [string, Trade["tf"]][])
+    .map(([name, tf]) => [name, trades.filter((t) => t.tf === tf)] as [string, Trade[]])
+    .filter(([, list]) => list.length > 0);
+  const cell = (list: Trade[]) => <span className={tone(sum(list) / list.length, 0.005)}>{fmtR(sum(list) / list.length, 2)}</span>;
+  return (
+    <section className="sec-grades" aria-labelledby="grades-h">
+      <h2 className="sec" id="grades-h">Which range size did better?</h2>
+      <div className="table-wrap">
+        <table className="grid">
+          <thead><tr><th scope="col">Range</th><th scope="col">Trades</th><th scope="col">Won</th><th scope="col">Average</th><th scope="col">Total</th></tr></thead>
+          <tbody>
+            {rows.map(([name, list]) => (
+              <tr key={name}>
+                <th scope="row">{name}</th>
+                <td>{fmtInt(list.length)}</td>
+                <td>{fmtPct(list.filter((t) => t.r > 0.005).length / list.length)}</td>
+                <td>{cell(list)}</td>
+                <td><span className={tone(sum(list))}>{fmtR(sum(list))}</span></td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

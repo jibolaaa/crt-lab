@@ -12,6 +12,10 @@ describe("markets for All markets", () => {
   it("starts with live markets only, all of them on the list", () => {
     for (const id of ALL_DEFAULT) expect(marketById(id)).toMatchObject({ id, source: "deriv" });
   });
+  it("starts with Ibrahim's four: CAD/JPY, gold, AUD/JPY and GBP/JPY", () => {
+    expect(ALL_DEFAULT).toEqual(["frxCADJPY", "frxXAUUSD", "frxAUDJPY", "frxGBPJPY"]);
+    for (const id of ["frxCADJPY", "frxAUDJPY"]) expect(marketById(id)).toMatchObject({ group: "Forex", unit: 0.01, digits: 3, weekendClosed: true, spec: { quoteName: "yen" } });
+  });
   it("has Volatility 25 to 75 back, marked as made by Deriv's random number generator", () => {
     for (const id of ["R_25", "R_50", "R_75", "1HZ25V", "1HZ50V", "1HZ75V"]) {
       const m = MARKETS.find((x) => x.id === id)!;
@@ -47,7 +51,7 @@ describe("a market's compact result", () => {
   });
 });
 
-const trade = (marketId: string, entryT: number, exitT: number, r: number): ScanTrade => ({ marketId, id: entryT, dir: 1, tf: "day", entryT, exitT, r, pct: 60, reason: r > 0 ? "tp2" : "stop" });
+const trade = (marketId: string, entryT: number, exitT: number, r: number): ScanTrade => ({ marketId, id: entryT, model: "shift", dir: 1, tf: "day", entryT, exitT, r, pct: 60, reason: r > 0 ? "tp2" : "stop" });
 const WEEK = 7 * 86400;
 function row(marketId: string, weeks: number, list: ScanTrade[], setups: LiveSetup[] = []): ScanRow {
   return {

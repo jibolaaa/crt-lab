@@ -19,7 +19,7 @@ const DATA_URL = "/data/eurusd-15m.bin";
 /** Live markets load 5-minute candles, so daily CRTs can look for 5-minute breaks of structure. */
 const LIVE_GRANULARITY = 300;
 const MONEY_KEY = "crt-lab:money";
-const ALL_KEY = "crt-lab:all-markets";
+const ALL_KEY = "crt-lab:all-markets:v2"; // v2: the list now starts with the four pairs
 const specKey = (id: string) => `crt-lab:spec:${id}`;
 const DEFAULT_MONEY: MoneyCfg = { account: 10, mode: "lots", lots: 0.01, riskPct: 1, leverage: 500 };
 const YEAR = 365 * 86400;
@@ -229,7 +229,7 @@ export default function Lab() {
     (async () => {
       await ensure(symbol, progress(mk.name), force);
       let partnerKey: string | null = null, smt: DataInfo["smt"] = null;
-      if (mk.smt) {
+      if (mk.smt && cfgRef.current.entry !== "model1") { // Model 1 has no SMT check: skip loading the related market
         try {
           await ensure(mk.smt.symbol, progress(`${mk.smt.name} for the SMT check`), force);
           partnerKey = mk.smt.symbol;
@@ -264,7 +264,7 @@ export default function Lab() {
       const mk = marketById(id);
       const info = mk.symbol ? stored.current.get(mk.symbol) : undefined;
       if (!info) continue;
-      const partnerKey = mk.smt && stored.current.has(mk.smt.symbol) ? mk.smt.symbol : null;
+      const partnerKey = mk.smt && cfgRef.current.entry !== "model1" && stored.current.has(mk.smt.symbol) ? mk.smt.symbol : null;
       markets.push({ marketId: id, key: mk.symbol!, partnerKey, cfg: marketCfg(cfgRef.current, mk, info.lastClose) });
     }
     if (markets.length) send({ type: "scan", gen, markets });
@@ -279,14 +279,15 @@ export default function Lab() {
       const mk = marketById(live[k]);
       const force = forceAll || forceIds.includes(mk.id);
       const label = `${mk.name} (${k + 1} of ${live.length})`;
-      const need = force || !stored.current.has(mk.symbol!) || (mk.smt && !stored.current.has(mk.smt.symbol));
+      const smtToo = !!mk.smt && cfgRef.current.entry !== "model1";
+      const need = force || !stored.current.has(mk.symbol!) || (smtToo && !stored.current.has(mk.smt!.symbol));
       if (need) setScanStatus({ text: `Loading ${label}`, fraction: k / live.length });
       const progress = (what: string) => (count: number) => {
         if (scanToken.current === token) setScanStatus({ text: `Loading ${what}: ${count.toLocaleString("en-GB")} candles`, fraction: (k + 0.5) / live.length });
       };
       try {
         await ensure(mk.symbol!, progress(label), force);
-        if (mk.smt) {
+        if (mk.smt && smtToo) {
           try { await ensure(mk.smt.symbol, progress(`${mk.smt.name} for ${mk.name}'s SMT check`), force); } catch { /* SMT is left out */ }
         }
         setScanErrors((e) => { if (!(mk.id in e)) return e; const next = { ...e }; delete next[mk.id]; return next; });
@@ -396,7 +397,7 @@ export default function Lab() {
       </header>
 
       <main className="page simple">
-        <p className="tagline">Your CRT rules on real prices: today&apos;s daily and weekly setups, a call when there&apos;s an entry, and how the rules have done.</p>
+        <p className="tagline">Your CRT rules on real prices: today&apos;s setups, the order when there&apos;s an entry, and how the rules have done.</p>
 
         <div className="view-switch" role="tablist" aria-label="View">
           <button role="tab" aria-selected={view === "one"} className={view === "one" ? "on" : ""} onClick={() => setView("one")}>One market</button>
@@ -407,13 +408,13 @@ export default function Lab() {
             ? "One market in detail: its setups, trades and charts."
             : "Your rules on all your markets at once: every setup close to an entry, and the total result."}
         </p>
-        <CheckFilter value={cfg.minPct} onChange={(v) => update({ minPct: v })} />
+        {cfg.entry !== "model1" && <CheckFilter value={cfg.minPct} onChange={(v) => update({ minPct: v })} />}
 
         {view === "one" ? (
           <>
             <MarketBar market={market} onMarket={setMarketId} data={data} loading={loading} loadError={loadError} onRetry={() => loadPrices(true)} />
             <Now result={result} market={market} cfg={cfg} loading={!!loading} dt={data?.dt} />
-            <Verdict result={result} data={data} market={market} failed={!!loadError} money={dollars} moneyCfg={money} />
+            <Verdict result={result} data={data} market={market} failed={!!loadError} money={dollars} moneyCfg={money} model1={cfg.entry === "model1"} />
           </>
         ) : (
           <AllMarkets ids={allIds} setIds={setAllIds} rows={scanRows} status={scanStatus} errors={scanErrors} cfg={cfg} onOpen={openMarket} onRefresh={refreshAll} />

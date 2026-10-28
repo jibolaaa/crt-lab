@@ -50,6 +50,8 @@ export const MARKETS: Market[] = [
   { id: "frxGBPUSD", name: "GBP/USD", group: "Forex", source: "deriv", symbol: "frxGBPUSD", smt: { symbol: "frxEURUSD", name: "EUR/USD" }, unit: 0.0001, unitName: "pips", spread: 0.00015, weekendClosed: true, usdNews: true, digits: 5, spec: FX },
   { id: "frxAUDUSD", name: "AUD/USD", group: "Forex", source: "deriv", symbol: "frxAUDUSD", smt: { symbol: "frxNZDUSD", name: "NZD/USD" }, unit: 0.0001, unitName: "pips", spread: 0.00015, weekendClosed: true, usdNews: true, digits: 5, spec: FX },
   { id: "frxGBPJPY", name: "GBP/JPY", group: "Forex", source: "deriv", symbol: "frxGBPJPY", smt: { symbol: "frxEURJPY", name: "EUR/JPY" }, unit: 0.01, unitName: "pips", spread: 0.03, weekendClosed: true, usdNews: false, digits: 3, spec: { ...FX, quoteUsd: 1 / 150, quoteName: "yen" } },
+  { id: "frxAUDJPY", name: "AUD/JPY", group: "Forex", source: "deriv", symbol: "frxAUDJPY", smt: { symbol: "frxNZDJPY", name: "NZD/JPY" }, unit: 0.01, unitName: "pips", spread: 0.03, weekendClosed: true, usdNews: false, digits: 3, spec: { ...FX, quoteUsd: 1 / 150, quoteName: "yen" } },
+  { id: "frxCADJPY", name: "CAD/JPY", group: "Forex", source: "deriv", symbol: "frxCADJPY", smt: { symbol: "frxAUDJPY", name: "AUD/JPY" }, unit: 0.01, unitName: "pips", spread: 0.03, weekendClosed: true, usdNews: false, digits: 3, spec: { ...FX, quoteUsd: 1 / 150, quoteName: "yen" } },
   { id: "frxXAUUSD", name: "Gold (XAU/USD)", group: "Metals", source: "deriv", symbol: "frxXAUUSD", smt: { symbol: "frxXAGUSD", name: "silver" }, unit: 1, unitName: "dollars", spread: 0.3, buffer: 0.1, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 100, minLot: 0.01, lotStep: 0.01 } },
   { id: "frxXAGUSD", name: "Silver (XAG/USD)", group: "Metals", source: "deriv", symbol: "frxXAGUSD", smt: { symbol: "frxXAUUSD", name: "gold" }, unit: 1, unitName: "dollars", spread: 0.03, buffer: 0.01, weekendClosed: true, usdNews: true, digits: 3, spec: { contract: 5000, minLot: 0.01, lotStep: 0.01 } },
   { id: "OTC_NDX", drift: true, name: "US Tech 100", group: "US indices", source: "deriv", symbol: "OTC_NDX", smt: { symbol: "OTC_SPC", name: "US 500" }, unit: 1, unitName: "points", spreadShare: 0.0001, weekendClosed: true, usdNews: true, digits: 2, spec: { contract: 1, minLot: 0.01, lotStep: 0.01 } },
@@ -66,10 +68,10 @@ export const MARKETS: Market[] = [
 ];
 
 /** The page opens on a live market, so "right now" has something to read. */
-export const DEFAULT_MARKET = "R_25";
+export const DEFAULT_MARKET = "frxGBPJPY";
 
-/** The markets the All markets view starts with: the Volatility indices, for now. */
-export const ALL_DEFAULT = ["R_25", "R_50", "R_75", "1HZ25V", "1HZ50V", "1HZ75V"];
+/** The markets the All markets view starts with: the four Ibrahim sticks to for now. */
+export const ALL_DEFAULT = ["frxCADJPY", "frxXAUUSD", "frxAUDJPY", "frxGBPJPY"];
 
 /**
  * Live prices load as far back as Deriv sends 5-minute candles. This is only the oldest date asked

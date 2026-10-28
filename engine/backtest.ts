@@ -25,6 +25,7 @@ import { dayKey, inSessions, nfpTimes, usDst } from "./calendar";
 import { build4h, candleSeconds, structure, type Structure } from "./htf";
 import { findLevels, keyLevelFor, levelBook, markTouches, type Level, type LevelBook } from "./levels";
 import { stats } from "./stats";
+import { runModel1Pass, swingsOf } from "./model1";
 import {
   CONFLUENCES, WEIGHT,
   type Bar, type Call, type Checklist, type Config, type CrtTf, type Dir, type Funnel, type Live, type LiveSetup,
@@ -122,7 +123,7 @@ export interface Prepared {
 }
 
 /** Bigger candles (`step` seconds) from the base ones. The last one only counts once its final base candle is in. */
-function aggregate(s: Series, cal: Calendar, step: number, baseDt: number): Candles {
+export function aggregate(s: Series, cal: Calendar, step: number, baseDt: number): Candles {
   const t: number[] = [], o: number[] = [], h: number[] = [], l: number[] = [], c: number[] = [], day: number[] = [], ib: number[] = [];
   for (let i = 0; i < s.n; i++) {
     const bt = s.t[i] - (s.t[i] % step), k = t.length - 1;
@@ -231,12 +232,24 @@ function inDiscount(st: Structure, idx: number, entry: number, long: boolean) {
 export function runBacktest(p: Prepared, cfg: Config): RunResult {
   const s = p.s;
   const capByDay = new Map<number, number>();
-  const tfs = (["week", "day"] as CrtTf[]).filter((x) => cfg.crt.includes(x));
-  const passes = tfs.map((tf) => runPass(p, cfg, tf, capByDay));
-  const trades = passes.flatMap((x) => x.trades).sort((a, b) => a.entryT - b.entryT || (a.tf === b.tf ? 0 : a.tf === "week" ? -1 : 1));
-  trades.forEach((tr, k) => { tr.id = k + 1; });
+  const m1 = cfg.entry === "model1";
+  // 4-hour ranges are Model 1's only
+  const tfs = (["week", "day", "h4"] as CrtTf[]).filter((x) => cfg.crt.includes(x) && (m1 || x !== "h4"));
+  const passes = tfs.map((tf) => (m1 ? runModel1Pass(p, cfg, tf, capByDay) : runPass(p, cfg, tf, capByDay)));
+  const TF_ORDER: Record<CrtTf, number> = { week: 0, day: 1, h4: 2 };
+  let trades = passes.flatMap((x) => x.trades).sort((a, b) => a.entryT - b.entryT || TF_ORDER[a.tf] - TF_ORDER[b.tf]);
   const funnel = emptyFunnel();
   for (const x of passes) for (const k of Object.keys(funnel) as (keyof Funnel)[]) funnel[k] += x.funnel[k];
+  if (m1) {
+    // one position each way: a 4-hour and a daily range swept together give one trade, not two
+    const kept: Trade[] = [];
+    for (const t of trades) {
+      if (kept.some((x) => x.dir === t.dir && x.entryT <= t.entryT && x.exitT > t.entryT - p.dt)) { funnel.entries--; funnel.skippedOverlap++; continue; }
+      kept.push(t);
+    }
+    trades = kept;
+  }
+  trades.forEach((tr, k) => { tr.id = k + 1; });
 
   let live: Live | null = null;
   if (s.n) {
@@ -245,6 +258,7 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
       live = {
         asOf: s.t[s.n - 1] + p.dt, dayStart: p.cal.days[di].t, date: p.cal.days[di].key * 86400, weekDate: weekDate(p.cal.weeks[wi].key),
         bias: p.bias.structure[wi], biasGate: cfg.bias === "off" ? null : cfg.bias,
+        swings: m1 ? { weekly: wi >= 1 ? swingsOf(p).weekly[wi - 1] : 0, daily: swingsOf(p).daily[di - 1] } : undefined,
         setups: passes.flatMap((x) => x.live)
       };
     }

@@ -26,7 +26,12 @@ export interface Bar {
   i1: number; // index of its last 15-minute candle
 }
 
-export type BiasMode = "off" | "weeklyCrt" | "structure" | "premiumDiscount" | "majority" | "allAgree";
+/**
+ * The first six are the old rules' weekly bias. Model 1 reads structure from swings: lower highs and
+ * lower lows for sells, higher highs and higher lows for buys. "weeklyDaily": the weekly and the
+ * daily both agree. "weeklySwings" or "dailySwings": that chart alone.
+ */
+export type BiasMode = "off" | "weeklyCrt" | "structure" | "premiumDiscount" | "majority" | "allAgree" | "weeklyDaily" | "weeklySwings" | "dailySwings";
 /** "any": an order block or a gap, joined when they overlap. "obFvg": a gap with the order block before it. */
 /**
  * "sweep": the order block is the candle that made the sweep (the last up candle at a swept high,
@@ -41,16 +46,28 @@ export type DayStart = "utc" | "nyClose";
 export type StopMode = "sweep" | "pullback" | "ob";
 /** Higher timeframes for key levels: 4-hour, daily, weekly. */
 export type Tf = "h4" | "d1" | "w1";
-/** Old high or low purged, order block, fair value gap, rejection block, breaker block. */
-export type LevelKind = "old" | "ob" | "fvg" | "rb" | "breaker";
-/** The candle that sets the range: the day before, or the week before. */
-export type CrtTf = "day" | "week";
+/**
+ * Old high or low purged, order block, fair value gap, rejection block, breaker block, and a flip:
+ * an old swing low that price closed below, now resistance (an old swing high closed above, now support).
+ */
+export type LevelKind = "old" | "ob" | "fvg" | "rb" | "breaker" | "flip";
+/** Why a key level fits the structure (Model 1), for a sell (buys are the mirror image). */
+export type KeyFit =
+  | "supply" // the order block of the last lower high: where the last drop to a lower low started
+  | "flip" // where price broke down from: old support, now resistance (or a breaker block)
+  | "leg" // an order block or gap the latest drop left on its way down
+  | "premium" // any zone above the middle of the latest swing range
+  | "any"; // the structure check is off
+/** The candle that sets the range: a 4-hour candle (Model 1 only), the day before, or the week before. */
+export type CrtTf = "h4" | "day" | "week";
 /**
  * Shift: in the zone, a market order on the close that breaks structure (the BOS).
  * Retest: after that BOS, a limit at the order block it left.
  * QM: a limit at the Quasimodo line after the A-shape and the shift.
+ * Model 1: the three-candle CRT (range, inside candles, sweep); after the MSS and the inducement,
+ * a limit at the order block (see model1.ts).
  */
-export type EntryModel = "shift" | "retest" | "qm";
+export type EntryModel = "shift" | "retest" | "qm" | "model1";
 
 /** The checklist behind the percent, in display order. The first five are about direction and count double. */
 export const CONFLUENCES = [
@@ -137,9 +154,25 @@ export interface Config {
   swingWeekly: number;
   /** Whether red folder (USD) news applies to this market. */
   usdNews: boolean;
+  /**
+   * Model 1: how many candles after the sweep candle the key level hit and the entry can still come,
+   * while the candles keep closing inside the range (0 = the sweep candle only).
+   */
+  sweepWindow: number;
+  /** Model 1: the entry has to sit inside the key level. */
+  keyInside: boolean;
+  /** Model 1: the key level has to fit the structure (see KeyFit). Off: any fresh level counts. */
+  keyFit: boolean;
+  /** Model 1: the stop goes past the sweep's tip ("tip") or just past the order block candle ("candle"). */
+  obStop: "tip" | "candle";
+  /** Model 1: the chart the MSS, inducement and entry are read on. "auto": 5-minute for 4-hour ranges, 15-minute for daily, 30-minute for weekly. */
+  entryChart: EntryChart;
 }
 
-export const DEFAULT_CONFIG: Config = {
+export type EntryChart = "auto" | "m5" | "m15" | "m30";
+
+/** The old rules: a day or week as candle 1, candle 2 sweeps it, then a 1-hour zone and a 5-minute BOS. */
+export const CLASSIC_CONFIG: Config = {
   crt: ["day", "week"],
   entry: "shift",
   bias: "off",
@@ -173,8 +206,33 @@ export const DEFAULT_CONFIG: Config = {
   weekendClosed: true,
   swing15: 2,
   swingWeekly: 2,
-  usdNews: true
+  usdNews: true,
+  sweepWindow: 2,
+  keyInside: true,
+  keyFit: true,
+  obStop: "tip",
+  entryChart: "auto"
 };
+
+/** What switching to each model sets. */
+export const MODEL_RULES: Record<"model1" | "classic", Partial<Config>> = {
+  model1: {
+    entry: "model1", crt: ["h4", "day"], bias: "weeklyDaily", keyLevelKinds: ["ob", "fvg", "rb", "breaker", "flip"],
+    maxR: 1000, minR: 2, partialAtTp1: true, timeStop: false, mustHave: [], minPct: 0, midCancels: false
+  },
+  classic: {
+    entry: "shift", crt: ["day", "week"], bias: "off", keyLevelKinds: ["old", "ob", "fvg", "rb"],
+    maxR: 4, minR: 2, partialAtTp1: true, timeStop: false, mustHave: [], minPct: 0, midCancels: false
+  }
+};
+
+/**
+ * The page's rules: Model 1, the three-candle CRT. For a sell: a range candle (4-hour or daily), one or
+ * more inside candles, then a candle that takes the range high into a key level that fits the
+ * structure, while the weekly and daily structure are both bearish. Then an MSS, the inducement, and a
+ * limit at the order block. See model1.ts.
+ */
+export const DEFAULT_CONFIG: Config = { ...CLASSIC_CONFIG, ...MODEL_RULES.model1 };
 
 export type ExitReason = "tp2" | "stop" | "breakeven" | "time" | "end";
 
@@ -190,7 +248,7 @@ export interface Zone {
   sweep?: boolean;
 }
 
-export interface KeyLevelInfo { tf: Tf; kind: LevelKind; top: number; bottom: number; t: number }
+export interface KeyLevelInfo { tf: Tf; kind: LevelKind; top: number; bottom: number; t: number; fit?: KeyFit }
 
 /** The QM entry: the A-shape top (head), the line it came from (shoulder), and the shift. */
 export interface QmInfo {
@@ -226,6 +284,9 @@ export interface Trade {
   qm: QmInfo | null;
   /** Retest entry: the order block the BOS left, where the limit sat. */
   retest: { level: number; top: number; bottom: number; obT: number; bosT: number } | null;
+  /** Model 1: inside candles in the range, the inducement, and where the limit sat. */
+  /** Model 1: the details only it has. */
+  m1?: M1Info | null;
   entryT: number; // close time of the candle the entry happened in
   entry: number; // fill price (ask for buys, bid for sells)
   stop: number;
@@ -283,8 +344,20 @@ export interface Funnel {
 }
 
 /** Where a setup stands at the last closed candle. */
+/** Model 1: what a trade or setup holds beyond the shared fields. */
+export interface M1Info {
+  inside: number; // inside candles after the range candle
+  entryDt: number; // seconds per candle on the entry chart
+  /** The swing the MSS closed through: its candle's time. */
+  mssFrom: number;
+  idm: number; // the inducement: the first pullback's high (low for buys) after the MSS
+  idmT: number;
+  limit: number; // where the order sat: the order block, no closer than the inducement
+  after: number; // candles after the sweep candle the entry came in (0 = the sweep candle)
+}
+
 export type LiveStage =
-  | "blocked" // the weekly bias rules this direction out this week
+  | "blocked" // the bias rules this direction out (the weekly bias; Model 1: the weekly and daily structure)
   | "waiting" // candle 2 hasn't taken candle 1's high or low yet
   | "noKey" // it took it, but not into a fresh key level
   | "swept" // QM: swept into a key level, candle 2 still forming
@@ -293,6 +366,7 @@ export type LiveStage =
   | "key" // shift: swept into a key level; waiting for a zone
   | "zone" // shift: zone ready; waiting for price to come back into it
   | "touched" // shift: in the zone; waiting for a close beyond `level`
+  | "mss" // Model 1: the MSS happened; waiting for the first pullback (the inducement)
   | "entered"
   | "ended"; // cancelled or skipped: see `why`
 
@@ -324,6 +398,14 @@ export interface LiveSetup {
   call: Call | null;
   skipR: number | null;
   trade: Trade | null;
+  /** Model 1: how far it got. */
+  m1?: {
+    inside: number;
+    entryDt: number;
+    mss: number | null;
+    ob: { top: number; bottom: number } | null;
+    idm: number | null;
+  };
 }
 
 export interface Live {
@@ -335,6 +417,8 @@ export interface Live {
   bias: number;
   /** The weekly bias rule in use as a gate, or null when it only counts toward the percent. */
   biasGate: BiasMode | null;
+  /** Model 1: the weekly and daily structure from swings, as of the last finished week and day: 1, -1 or 0. */
+  swings?: { weekly: number; daily: number };
   setups: LiveSetup[];
 }
 

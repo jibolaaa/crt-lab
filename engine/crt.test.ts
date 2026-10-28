@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { prepare, runBacktest } from "./backtest";
-import { CONFLUENCES, DEFAULT_CONFIG, type Config, type Series } from "./types";
+import { CONFLUENCES, CLASSIC_CONFIG, type Config, type Series } from "./types";
 
 // Days of 15-minute candles from Mon 8 Jan 2024 (UTC), flat at the previous
 // close unless listed as "day:HH:MM" -> [open, high, low, close].
@@ -34,7 +34,7 @@ const iso = (t: number) => new Date(t * 1000).toISOString();
 
 // Today's rules, without the key level, the news rest or the R percent, so each test can switch one on.
 const NEW: Partial<Config> = { crt: ["day"], entry: "qm", requireKeyLevel: false, newsGuard: false, maxPerDay: 0, lowRPct: 0, stopBuffer: 0, spread: 0.0001, weekendClosed: false, timeStop: true, minPct: 0, partialAtTp1: false, timing: "nextDay" };
-const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, ...NEW, ...over });
+const cfg = (over: Partial<Config> = {}): Config => ({ ...CLASSIC_CONFIG, ...NEW, ...over });
 const run = (s: Series, c: Config, partner: Series | null = null) => runBacktest(prepare(s, c, partner), c);
 const live = (s: Series, c: Config) => runBacktest(prepare(s, c), c).live!;
 

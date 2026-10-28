@@ -7,7 +7,7 @@ import { CRT_LABEL } from "../lib/confluences";
 import { fmtDate, fmtDay, fmtMonth, fmtPrice, fmtR, fmtTime } from "../lib/format";
 import { Choice } from "./controls";
 import { CallView, describeSetup } from "./now";
-import { exitText } from "./trades";
+import { crtPrefix, exitText } from "./trades";
 
 const LIVE = MARKETS.filter((m) => m.source === "deriv");
 const tone = (r: number) => (r > 0.005 ? "pos" : r < -0.005 ? "neg" : "flat");
@@ -149,8 +149,8 @@ export function AllMarkets(p: Props) {
                 <button className="trow" onClick={() => p.onOpen(t.marketId)}>
                   <span className={`dir ${t.dir === 1 ? "buy" : "sell"}`}>{t.dir === 1 ? "Buy" : "Sell"}</span>
                   <span className="t-main">
-                    <span className="t-date">{marketById(t.marketId).name}, {fmtDay(t.entryT - 1)} <span className="grade">{Math.round(t.pct)}%</span></span>
-                    <span className="t-why">{t.tf === "week" ? "Weekly CRT. " : ""}{exitText(t)}</span>
+                    <span className="t-date">{marketById(t.marketId).name}, {fmtDay(t.entryT - 1)} {t.model !== "model1" && <span className="grade">{Math.round(t.pct)}%</span>}</span>
+                    <span className="t-why">{crtPrefix(t)}{exitText(t)}</span>
                   </span>
                   <span className="t-end"><span className={`t-r ${tone(t.r)}`}>{fmtR(t.r, 2)}</span></span>
                 </button>

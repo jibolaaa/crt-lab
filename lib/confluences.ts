@@ -1,5 +1,5 @@
 // How the checklist, key levels and CRTs are described on the page.
-import type { ConfKey, CrtTf, Dir, LevelKind } from "../engine";
+import type { ConfKey, CrtTf, Dir, KeyFit, LevelKind } from "../engine";
 
 export const CONF_LABEL: Record<ConfKey, string> = {
   weeklyBias: "Weekly structure agrees",
@@ -19,11 +19,27 @@ export const CONF_LABEL: Record<ConfKey, string> = {
 
 export const TF_LABEL = { h4: "4-hour", d1: "daily", w1: "weekly" } as const;
 export const KIND_LABEL: Record<LevelKind, string> = {
-  old: "old high or low", ob: "order block", fvg: "fair value gap", rb: "rejection block", breaker: "breaker block"
+  old: "old high or low", ob: "order block", fvg: "fair value gap", rb: "rejection block", breaker: "breaker block",
+  flip: "broken level"
 };
 /** A key level's name the way a trader says it: an old low for buys, an old high for sells. */
-export const kindName = (kind: LevelKind, dir: Dir) => (kind === "old" ? (dir === 1 ? "old low" : "old high") : KIND_LABEL[kind]);
+export const kindName = (kind: LevelKind, dir: Dir) =>
+  kind === "old" ? (dir === 1 ? "old low" : "old high")
+    : kind === "flip" ? (dir === 1 ? "old resistance, now support" : "old support, now resistance")
+      : KIND_LABEL[kind];
 
-export const CRT_LABEL: Record<CrtTf, string> = { day: "Daily CRT", week: "Weekly CRT" };
+/** Why a key level fits the structure (Model 1), the way a trader says it. */
+export const fitText = (fit: KeyFit | undefined, dir: Dir) => {
+  const sell = dir === -1;
+  switch (fit) {
+    case "supply": return sell ? "the supply of the last lower high" : "the demand of the last higher low";
+    case "flip": return sell ? "where price broke down from" : "where price broke up from";
+    case "leg": return sell ? "left by the latest drop" : "left by the latest rally";
+    case "premium": return sell ? "in premium" : "in discount";
+    default: return "";
+  }
+};
+
+export const CRT_LABEL: Record<CrtTf, string> = { h4: "4H CRT", day: "Daily CRT", week: "Weekly CRT" };
 /** What candle 1 is called for each CRT. */
-export const CANDLE: Record<CrtTf, string> = { day: "day", week: "week" };
+export const CANDLE: Record<CrtTf, string> = { h4: "4-hour candle", day: "day", week: "week" };

@@ -1,6 +1,7 @@
 export * from "./types";
 export { prepare, runBacktest, sideAllows, type Prepared } from "./backtest";
 export { stats, compound } from "./stats";
+export { swingBias, runModel1Pass } from "./model1";
 export { nfpRelease, nfpTimes, dayKey, inSessions, usDst } from "./calendar";
 
 import type { Series } from "./types";

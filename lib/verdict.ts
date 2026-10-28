@@ -6,9 +6,14 @@ const amount = (r: number) => `${Math.abs(r).toFixed(1)}R`;
 const plural = (n: number, word: string) => `${fmtInt(n)} ${word}${n === 1 ? "" : "s"}`;
 const result = (r: number) => (r >= 0.05 ? `made ${amount(r)}` : r <= -0.05 ? `lost ${amount(r)}` : "broke even");
 
-export function verdict(res: RunResult) {
+export function verdict(res: RunResult, model1 = false) {
   const n = res.all.trades, total = res.all.totalR, late = res.unseen;
-  if (!n) return { line: "No trades with these rules.", notes: ["Nothing got through every rule. Try \"Every setup\" above, or switch a rule off."], cautions: [] as string[] };
+  if (!n) {
+    const hint = model1
+      ? "Nothing got through every rule on these prices. Under Change rules, try the weekly or daily structure on its own, or more range candles."
+      : "Nothing got through every rule. Try \"Every setup\" above, or switch a rule off.";
+    return { line: "No trades with these rules.", notes: [hint], cautions: [] as string[] };
+  }
 
   const line = `These rules ${result(total)} over ${plural(n, "trade")}, winning ${Math.round(res.all.winRate * 100)}% of them.`;
   const notes = [

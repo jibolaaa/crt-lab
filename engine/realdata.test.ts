@@ -1,7 +1,7 @@
 // Checks on 8 years of real EURUSD candles (2014 to 2021).
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG, prepare, runBacktest, seriesFromBuffer, type Config, type Series, type Trade } from "./index";
+import { CLASSIC_CONFIG, DEFAULT_CONFIG, prepare, runBacktest, seriesFromBuffer, type Config, type Series, type Trade } from "./index";
 
 const buf = readFileSync(new URL("../public/data/eurusd-15m.bin", import.meta.url));
 const full = seriesFromBuffer(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
@@ -57,7 +57,7 @@ const entryFields = (x: Trade) => ({
 });
 
 describe.each(CONFIGS)("real EURUSD, %s", (_name, over) => {
-  const cfg: Config = { ...DEFAULT_CONFIG, ...over };
+  const cfg: Config = { ...CLASSIC_CONFIG, ...over };
   const res = runBacktest(prepare(full, cfg), cfg);
 
   it("finds trades", () => expect(res.trades.length).toBeGreaterThan(3));
@@ -160,5 +160,82 @@ describe.each(CONFIGS)("real EURUSD, %s", (_name, over) => {
       const after = f.entries + f.skippedNews + f.skippedSession + f.skippedPastMid + f.skippedLowR + f.skippedDailyCap + f.skippedOverlap + f.skippedChecks;
       expect(after).toBeLessThanOrEqual(f.touches);
     }
+  });
+});
+
+// Model 1, the three-candle CRT
+const M1_CONFIGS: [string, Partial<Config>][] = [
+  ["Model 1", {}],
+  ["Model 1, no structure bias", { bias: "off" }],
+  ["Model 1, daily structure only, any fresh key level", { bias: "dailySwings", keyFit: false }],
+  ["Model 1, weekly ranges too, 5-minute entries, stop past the order block candle", { crt: ["h4", "day", "week"], entryChart: "m5", bias: "off", obStop: "candle" }]
+];
+
+describe.each(M1_CONFIGS)("real EURUSD, %s", (_name, over) => {
+  const cfg: Config = { ...DEFAULT_CONFIG, ...over };
+  const res = runBacktest(prepare(full, cfg), cfg);
+  const fields = (x: Trade) => ({ ...entryFields(x), m1: x.m1 });
+
+  it("finds trades", () => expect(res.trades.length).toBeGreaterThan(3));
+
+  it("would have taken every trade with the data cut off at the entry candle", () => {
+    const pick = res.trades.filter((_, i) => i % Math.ceil(res.trades.length / 12) === 0);
+    for (const tr of pick) {
+      const i = lastBefore(full, tr.entryT);
+      const part = cut(full, i + 1);
+      const again = runBacktest(prepare(part, cfg), cfg).trades.find((x) => x.entryT === tr.entryT && x.dir === tr.dir && x.tf === tr.tf);
+      expect(again, `trade ${tr.id}`).toBeDefined();
+      expect(fields(again!)).toEqual(fields(tr));
+    }
+  }, 180_000);
+
+  it("keeps every trade's prices and times in order", () => {
+    for (const tr of res.trades) {
+      const d = tr.dir, m = tr.m1!;
+      expect(cfg.crt).toContain(tr.tf);
+      expect(tr.model).toBe("model1");
+      expect(m.inside).toBeGreaterThanOrEqual(1);
+      expect(m.after).toBeLessThanOrEqual(cfg.sweepWindow);
+      expect(d * (tr.entry - tr.stop), `risk ${tr.id}`).toBeGreaterThan(0);
+      expect(d * (tr.tp2 - tr.entry), `tp2 ${tr.id}`).toBeGreaterThan(0);
+      expect(d * (tr.mid - tr.entry), `past 50% ${tr.id}`).toBeGreaterThan(0);
+      expect(tr.plannedR).toBeGreaterThanOrEqual(cfg.minR - 1e-9);
+      // the sweep took the range, then the MSS, the inducement and the fill came in that order
+      expect(d * (tr.sweepPrice - (d === 1 ? tr.rangeLow : tr.rangeHigh))).toBeLessThan(0);
+      expect(tr.sweepT).toBeLessThan(tr.mssT);
+      expect(m.mssFrom).toBeLessThan(tr.sweepT);
+      expect(m.idmT).toBeGreaterThanOrEqual(tr.mssT - m.entryDt);
+      expect(m.idmT).toBeLessThan(tr.entryT);
+      // a limit at the order block, no closer than the inducement, or better if price jumped past it
+      expect(d * (m.limit - tr.entry)).toBeGreaterThanOrEqual(-1e-9);
+      expect(d * (m.limit - m.idm)).toBeLessThanOrEqual(1e-9);
+      if (cfg.obStop === "tip") expect(d * (tr.sweepPrice - tr.stop)).toBeGreaterThan(0);
+      // the key level fits the structure, and the order sat inside it
+      expect(tr.keyLevel).not.toBeNull();
+      if (cfg.keyFit) expect(tr.keyLevel!.fit).not.toBe("any");
+      const tol = 0.1 * (tr.rangeHigh - tr.rangeLow) + 1e-9;
+      if (cfg.keyInside) {
+        expect(m.limit).toBeGreaterThanOrEqual(tr.keyLevel!.bottom - tol);
+        expect(m.limit).toBeLessThanOrEqual(tr.keyLevel!.top + tol);
+      }
+      if (tr.reason === "stop") expect(tr.r).toBeLessThanOrEqual(-0.999);
+      if (tr.reason === "tp2") expect(tr.r).toBeGreaterThan(0);
+    }
+  });
+
+  it("is never in two trades the same way at once, across range sizes", () => {
+    for (const dir of [1, -1]) {
+      const list = res.trades.filter((x) => x.dir === dir).sort((a, b) => a.entryT - b.entryT);
+      for (let k = 1; k < list.length; k++) expect(list[k].entryT, `trade ${list[k].id}`).toBeGreaterThanOrEqual(list[k - 1].exitT);
+    }
+  });
+
+  it("adds up", () => {
+    const f = res.funnel;
+    expect(f.entries).toBe(res.trades.length);
+    expect(f.keyLevels).toBeLessThanOrEqual(f.sweeps);
+    expect(f.touches).toBeLessThanOrEqual(f.zones);
+    const after = f.entries + f.skippedNews + f.skippedSession + f.skippedPastMid + f.skippedLowR + f.skippedDailyCap + f.skippedOverlap + f.skippedChecks;
+    expect(after).toBeLessThanOrEqual(f.touches);
   });
 });

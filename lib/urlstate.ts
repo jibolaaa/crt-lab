@@ -6,22 +6,24 @@ export type View = "one" | "all";
 export interface Saved { marketId?: string; view?: View; cfg: Partial<Config> }
 
 const ONE_OF = {
-  bias: ["off", "weeklyCrt", "structure", "premiumDiscount", "majority", "allAgree"],
+  bias: ["off", "weeklyCrt", "structure", "premiumDiscount", "majority", "allAgree", "weeklyDaily", "weeklySwings", "dailySwings"],
   side: ["auto", "both", "buys", "sells"],
-  entry: ["shift", "retest", "qm"],
+  entry: ["shift", "retest", "qm", "model1"],
+  obStop: ["tip", "candle"],
+  entryChart: ["auto", "m5", "m15", "m30"],
   zone: ["sweep", "any", "obFvg", "fvg", "ob", "off"],
   timing: ["sameDay", "nextDay", "either"],
   stop: ["sweep", "pullback", "ob"],
   dayStart: ["utc", "nyClose"],
   freshFrom: ["candle1", "candle2"]
 } as const;
-const FLAGS = { half: "partialAtTp1", day3: "timeStop", news: "newsGuard", key: "requireKeyLevel", deep: "deeperSweeps", mid: "midCancels", kz: "zoneInKiller" } as const;
-const NUMBERS = { swing: "swing15", minr: "minR", fullr: "fullR", lowpct: "lowRPct", maxr: "maxR", perday: "maxPerDay", window: "entryWindow", minpct: "minPct" } as const;
+const FLAGS = { half: "partialAtTp1", day3: "timeStop", news: "newsGuard", key: "requireKeyLevel", deep: "deeperSweeps", mid: "midCancels", kz: "zoneInKiller", kin: "keyInside", kfit: "keyFit" } as const;
+const NUMBERS = { swing: "swing15", minr: "minR", fullr: "fullR", lowpct: "lowRPct", maxr: "maxR", perday: "maxPerDay", window: "entryWindow", minpct: "minPct", sw: "sweepWindow" } as const;
 const LISTS = {
-  crt: { key: "crt", allowed: ["day", "week"] as CrtTf[] },
+  crt: { key: "crt", allowed: ["h4", "day", "week"] as CrtTf[] },
   sess: { key: "sessions", allowed: ["asian", "london", "newyork"] as Session[] },
   ktf: { key: "keyLevelTfs", allowed: ["h4", "d1", "w1"] as Tf[] },
-  kind: { key: "keyLevelKinds", allowed: ["old", "ob", "fvg", "rb", "breaker"] as LevelKind[] },
+  kind: { key: "keyLevelKinds", allowed: ["old", "ob", "fvg", "rb", "breaker", "flip"] as LevelKind[] },
   must: { key: "mustHave", allowed: [...CONFLUENCES] as ConfKey[] }
 } as const;
 

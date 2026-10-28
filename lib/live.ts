@@ -3,12 +3,12 @@ import type { LiveSetup } from "../engine";
 
 // what needs watching first: a running trade, a limit, an entry about to happen, then the rest
 export const RANK: Record<LiveSetup["stage"], number> = {
-  entered: 0, limit: 1, touched: 2, armed: 3, zone: 4, swept: 5, key: 6, waiting: 7, noKey: 8, ended: 9, blocked: 10
+  entered: 0, limit: 1, touched: 2, mss: 2.5, armed: 3, zone: 4, swept: 5, key: 6, waiting: 7, noKey: 8, ended: 9, blocked: 10
 };
 export const rank = (s: LiveSetup) => (s.stage === "entered" && s.trade?.reason !== "end" ? 8.5 : RANK[s.stage]);
 
 /** Setups worth listing across markets: a trade, an order, or a setup on its way to an entry. */
-export const ACTIONABLE = new Set<LiveSetup["stage"]>(["entered", "limit", "touched", "armed", "zone", "key", "swept"]);
+export const ACTIONABLE = new Set<LiveSetup["stage"]>(["entered", "limit", "touched", "mss", "armed", "zone", "key", "swept"]);
 
 /** One row per direction: the setup furthest along, plus any trade still running. */
 export function pickSetups(list: LiveSetup[]) {

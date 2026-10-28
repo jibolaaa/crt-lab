@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { inKillzone, prepare, runBacktest, scoreOf } from "./backtest";
-import { DEFAULT_CONFIG, type Config, type Series } from "./types";
+import { CLASSIC_CONFIG, type Config, type Series } from "./types";
 
 // Build days of 15-minute candles from Mon 8 Jan 2024 (UTC).
 // Every candle is flat at the previous close unless listed in `at`:
@@ -31,7 +31,7 @@ const CLASSIC: Partial<Config> = {
   bias: "off", newsGuard: false, requireKeyLevel: false, stop: "sweep", stopBuffer: 0,
   partialAtTp1: true, minR: 0, fullR: 0, lowRPct: 0, maxR: 1000, maxPerDay: 0, timeStop: true, minPct: 0
 };
-const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, ...CLASSIC, ...over });
+const cfg = (over: Partial<Config> = {}): Config => ({ ...CLASSIC_CONFIG, ...CLASSIC, ...over });
 const run = (s: Series, c: Config) => runBacktest(prepare(s, c), c);
 const iso = (t: number) => new Date(t * 1000).toISOString();
 

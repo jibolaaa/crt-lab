@@ -1,11 +1,12 @@
 // All markets: one compact result per market, and the sums across them.
-import type { Config, CrtTf, ExitReason, Live, LiveSetup, RunResult } from "../engine";
+import type { Config, CrtTf, ExitReason, Live, LiveSetup, RunResult, Trade } from "../engine";
 import { defaultSpread, defaultStopBuffer, type Market } from "./markets";
 import { ACTIONABLE, pickSetups, rank } from "./live";
 
 export interface ScanTrade {
   marketId: string;
   id: number;
+  model: Trade["model"];
   dir: 1 | -1;
   tf: CrtTf;
   entryT: number;
@@ -46,7 +47,7 @@ export function toScanRow(marketId: string, info: { count: number; dt: number; f
     wins: r.trades.filter((t) => t.r > 0.005).length,
     totalR: r.all.totalR,
     maxDrawdownR: r.all.maxDrawdownR,
-    list: r.trades.map((t) => ({ marketId, id: t.id, dir: t.dir, tf: t.tf, entryT: t.entryT, exitT: t.exitT, r: t.r, pct: t.pct, reason: t.reason })),
+    list: r.trades.map((t) => ({ marketId, id: t.id, model: t.model, dir: t.dir, tf: t.tf, entryT: t.entryT, exitT: t.exitT, r: t.r, pct: t.pct, reason: t.reason })),
     live: r.live
   };
 }
