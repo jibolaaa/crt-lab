@@ -110,5 +110,5 @@ export function weeklyBias(weeks: Bar[], k: number): WeeklyBias {
 
 export function biasArray(b: WeeklyBias, mode: Config["bias"]): Int8Array | null {
   // Model 1 reads its own structure from swings (model1.ts)
-  return mode === "off" || mode === "weeklyDaily" || mode === "weeklySwings" || mode === "dailySwings" ? null : b[mode];
+  return mode === "off" || mode === "weeklyDaily" || mode === "weeklyLead" || mode === "weeklySwings" || mode === "dailySwings" ? null : b[mode];
 }

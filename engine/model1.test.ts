@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { prepare, runBacktest } from "./backtest";
+import { buildHistory, prepare, runBacktest } from "./backtest";
+import { buildCalendar } from "./bars";
+import { keyBook } from "./keys";
+import { swingsOf } from "./model1";
 import { flips, structureKeyFor, type KeyBook } from "./keys";
 import { structureAllows, swingBias } from "./model1";
 import type { Level } from "./levels";
@@ -66,16 +69,20 @@ const sell: Record<string, OHLC> = {
   "0:20:15": [1.1042, 1.1044, 1.103, 1.1032],
   "0:20:30": [1.1032, 1.1034, 1.0995, 1.0998]
 };
+// the order block entry on a 3-candle CRT, for the scenario above
 const MECHANICS: Partial<Config> = {
   crt: ["h4"], bias: "off", requireKeyLevel: false, newsGuard: false, maxPerDay: 0, stopBuffer: 0, spread: 0.0001,
-  weekendClosed: false, entryChart: "m15"
+  weekendClosed: false, entryChart: "m15", crtKind: "three", m1Entry: "ob", minR: 2
 };
 const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, ...MECHANICS, ...over });
 const run = (s: Series, c: Config) => runBacktest(prepare(s, c), c);
 
 describe("Model 1 is the page's rules", () => {
-  it("defaults to 4-hour and daily ranges, the weekly and daily structure, and no target cap", () => {
-    expect(DEFAULT_CONFIG).toMatchObject({ entry: "model1", crt: ["h4", "day"], bias: "weeklyDaily", maxR: 1000, keyFit: true, keyInside: true, entryChart: "auto" });
+  it("defaults to 4-hour and daily ranges, 2 or 3 candles, the daily structure, either QM entry, and no target cap", () => {
+    expect(DEFAULT_CONFIG).toMatchObject({
+      entry: "model1", crt: ["h4", "day"], crtKind: "both", bias: "dailySwings", m1Entry: "qm", qmEntry: "both",
+      minR: 1, maxR: 1000, keyFit: true, entryChart: "auto"
+    });
     expect(DEFAULT_CONFIG.keyLevelKinds).not.toContain("old"); // a swing high as a line isn't a key level for it
   });
 });
@@ -249,5 +256,172 @@ describe("Model 1's key levels", () => {
     expect(structureKeyFor(bookWith([ob]), ["d1"], ALL, true, sweep(6.4))).toBeNull();
     const ok = lv("ob", 6.5, 6.2, 9 * D, 10 * D, 13 * D); // touched by the range candle itself
     expect(structureKeyFor(bookWith([ok]), ["d1"], ALL, true, sweep(6.4))).not.toBeNull();
+  });
+});
+
+// A QM sell on a 2-candle 4-hour CRT (the mechanics only: no key level, no structure).
+// - Range candle, 08:00 to 12:00: high 1.1100, low 1.1000, 50% at 1.1050.
+// - Candle 2, 12:00 to 16:00: a swing high at 1.1085 (12:30): the QM line. A dip to 1.1070 (13:00):
+//   the breakout level. The Apex at 1.1110 (13:45), above the range high. 14:30 closes below 1.1070:
+//   the break. 15:00 comes back up to 1.1072: sold at the breakout level, 1.1070. Then down to the
+//   50% (15:30) and through the range low (16:00).
+const qmSell: Record<string, OHLC> = {
+  "0:00:00": [1.105, 1.106, 1.104, 1.105],
+  "0:04:00": [1.105, 1.1065, 1.1035, 1.105],
+  "0:08:00": [1.105, 1.11, 1.105, 1.108],
+  "0:10:00": [1.108, 1.108, 1.1, 1.102],
+  "0:11:45": [1.102, 1.104, 1.102, 1.104],
+  "0:12:00": [1.104, 1.1075, 1.1038, 1.1072],
+  "0:12:15": [1.1072, 1.108, 1.1068, 1.1078],
+  "0:12:30": [1.1078, 1.1085, 1.1074, 1.1076],
+  "0:12:45": [1.1076, 1.1079, 1.1071, 1.1073],
+  "0:13:00": [1.1073, 1.1075, 1.107, 1.1074],
+  "0:13:15": [1.1074, 1.109, 1.1073, 1.1088],
+  "0:13:30": [1.1088, 1.1098, 1.1086, 1.1096],
+  "0:13:45": [1.1096, 1.111, 1.1094, 1.1097],
+  "0:14:00": [1.1097, 1.1099, 1.108, 1.1082],
+  "0:14:15": [1.1082, 1.1084, 1.1072, 1.1074],
+  "0:14:30": [1.1074, 1.1076, 1.1062, 1.1065],
+  "0:14:45": [1.1065, 1.1067, 1.1058, 1.106],
+  "0:15:00": [1.106, 1.1072, 1.1059, 1.1066],
+  "0:15:15": [1.1066, 1.1067, 1.105, 1.1052],
+  "0:15:30": [1.1052, 1.1053, 1.104, 1.1042],
+  "0:15:45": [1.1042, 1.1044, 1.103, 1.1035],
+  "0:16:00": [1.1035, 1.1036, 1.0995, 1.0998]
+};
+const QM: Partial<Config> = {
+  crt: ["h4"], bias: "off", requireKeyLevel: false, newsGuard: false, maxPerDay: 0, stopBuffer: 0, spread: 0.0001,
+  weekendClosed: false, entryChart: "m15", crtKind: "both", m1Entry: "qm", qmEntry: "retest", minR: 1
+};
+const qcfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, ...QM, ...over });
+
+describe("a QM sell on a 2-candle 4-hour CRT", () => {
+  const res = run(make(qmSell), qcfg());
+  const tr = res.trades[0];
+  it("takes one trade, on candle 2, at the breakout retest", () => {
+    expect(res.trades.length).toBe(1);
+    expect(tr).toMatchObject({ dir: -1, tf: "h4", model: "model1" });
+    expect(tr.m1).toMatchObject({ inside: 0, after: 0, how: "retest", entryDt: 900 });
+    expect(tr.rangeDayT).toBe(at(8));
+    expect(tr.entryT).toBe(at(15, 15)); // the 15:00 candle's close
+  });
+  it("finds the QM line, the breakout level, the Apex and the break", () => {
+    expect(tr.qm!.level).toBeCloseTo(1.1085, 6);
+    expect(tr.qm!.shoulderT).toBe(at(12, 30));
+    expect(tr.qm!.smsLevel).toBeCloseTo(1.107, 6);
+    expect(tr.m1!.idmT).toBe(at(13));
+    expect(tr.qm!.head).toBeCloseTo(1.111, 6);
+    expect(tr.qm!.headT).toBe(at(13, 45));
+    expect(tr.qm!.smsT).toBe(at(14, 45)); // the 14:30 candle's close
+  });
+  it("sells at the breakout level with the stop above the Apex, half at 50% and the rest at the range low", () => {
+    expect(tr.entry).toBeCloseTo(1.107, 6);
+    expect(tr.stop).toBeCloseTo(1.111 + 0.0001, 6);
+    expect(tr.tp1).toBeCloseTo(1.105, 6);
+    expect(tr.tp2).toBeCloseTo(1.1, 6);
+    expect(tr.reason).toBe("tp2");
+    expect(tr.r).toBeCloseTo(0.5 * (0.002 / 0.0041) + 0.5 * (0.007 / 0.0041), 6);
+  });
+  it("counts the steps", () => {
+    expect(res.funnel).toMatchObject({ closedInside: 1, zones: 1, touches: 1, entries: 1 });
+  });
+  it("needs candle 2 to take the range, so a 3-candle-only rule skips it", () => {
+    expect(run(make(qmSell), qcfg({ crtKind: "three" })).trades.length).toBe(0);
+  });
+  it("skips it under the minimum R", () => {
+    const r = run(make(qmSell), qcfg({ minR: 2 }));
+    expect(r.trades.length).toBe(0);
+    expect(r.funnel.skippedLowR).toBe(1);
+  });
+});
+
+describe("a QM sell on an engulfing candle at the QM line", () => {
+  // the pullback reaches the QM line at 15:00, and 15:15 engulfs it
+  const s = make({ ...qmSell, "0:15:00": [1.106, 1.1084, 1.1059, 1.1082], "0:15:15": [1.1082, 1.1083, 1.1056, 1.1058] });
+  it("sells at the engulfing candle's close", () => {
+    const tr = run(s, qcfg({ qmEntry: "engulf" })).trades[0];
+    expect(tr.m1).toMatchObject({ how: "engulf" });
+    expect(tr.entry).toBeCloseTo(1.1058, 6);
+    expect(tr.entryT).toBe(at(15, 30));
+    expect(tr.stop).toBeCloseTo(1.1111, 6);
+  });
+  it("the retest fills first when both are allowed", () => {
+    const tr = run(s, qcfg({ qmEntry: "both" })).trades[0];
+    expect(tr.m1).toMatchObject({ how: "retest" });
+    expect(tr.entry).toBeCloseTo(1.107, 6);
+  });
+  it("takes nothing without the engulfing candle", () => {
+    expect(run(make(qmSell), qcfg({ qmEntry: "engulf" })).trades.length).toBe(0);
+  });
+});
+
+describe("a QM setup right now", () => {
+  const s2 = make(later(qmSell, 1), 3);
+  it("names the breakout level before the break", () => {
+    const st = run(upTo(s2, "1:14:15"), qcfg()).live!.setups.find((x) => x.tf === "h4" && x.dir === -1 && x.age === 0)!;
+    expect(st.stage).toBe("key");
+    expect(st.level).toBeCloseTo(1.107, 6);
+    expect(st.m1!.qm).toMatchObject({ broke: false });
+    expect(st.m1!.qm!.line).toBeCloseTo(1.1085, 6);
+  });
+  it("shows the sell limit at the breakout level after the break", () => {
+    const st = run(upTo(s2, "1:14:45"), qcfg()).live!.setups.find((x) => x.tf === "h4" && x.dir === -1 && x.age === 0)!;
+    expect(st.stage).toBe("limit");
+    expect(st.order!.level).toBeCloseTo(1.107, 6);
+    expect(st.order!.stop).toBeCloseTo(1.1111, 6);
+    expect(st.order!.target).toBeCloseTo(1.1, 6);
+    expect(st.m1!.qm).toMatchObject({ broke: true });
+  });
+});
+
+describe("the weekly structure leading", () => {
+  it("needs the weekly the trade's way, and the daily not the other way", () => {
+    expect(structureAllows("weeklyLead", -1, -1, 0)).toBe(true);
+    expect(structureAllows("weeklyLead", -1, -1, -1)).toBe(true);
+    expect(structureAllows("weeklyLead", -1, -1, 1)).toBe(false);
+    expect(structureAllows("weeklyLead", -1, 0, -1)).toBe(false);
+  });
+});
+
+describe("structure and key levels read on years of daily candles", () => {
+  // 40 weeks of daily candles falling in waves (lower highs and lower lows), then 3 days of 15-minute candles
+  const DAY = 86400;
+  const start = MON - 40 * 7 * DAY; // a Monday
+  const daily = { t: [] as number[], o: [] as number[], h: [] as number[], l: [] as number[], c: [] as number[] };
+  for (let d = 0; d < 40 * 7; d++) {
+    const wd = (d % 7); // 0 = Monday
+    if (wd >= 5) continue; // weekends closed
+    const wave = Math.sin(d / 11) * 0.01; // a swing about every 10 weeks
+    const base = 1.2 - d * 0.0004 + wave;
+    daily.t.push(start + d * DAY); daily.o.push(base); daily.h.push(base + 0.003); daily.l.push(base - 0.003); daily.c.push(base - 0.0005);
+  }
+  const dailySeries = { n: daily.t.length, ...daily };
+  const s = make({}, 3);
+  const c = cfg({ weekendClosed: true });
+  it("puts the daily candles before the loaded days, and the weeks the same way", () => {
+    const cal = buildCalendar(s, c);
+    const h = buildHistory(cal, dailySeries, c, 900);
+    expect(h.dOff).toBe(200); // 40 weeks of 5 days
+    expect(h.days.length).toBe(200 + cal.days.length);
+    expect(h.days[h.dOff]).toBe(cal.days[0]);
+    expect(h.weeks.length).toBe(40 + cal.weeks.length);
+    expect(h.days[0].tEnd + 900).toBe(start + DAY); // a daily candle closes at the end of its day
+  });
+  it("reads the weekly and daily structure from them, not just the loaded days", () => {
+    const withHistory = swingsOf(prepare(s, c, null, dailySeries));
+    expect(withHistory.weeklyBefore(0)).toBe(-1);
+    expect(withHistory.dailyBefore(0)).toBe(-1);
+    const without = swingsOf(prepare(s, c));
+    expect(without.weeklyBefore(0)).toBe(0);
+  });
+  it("finds daily and weekly key levels in them", () => {
+    const kb = keyBook(prepare(s, c, null, dailySeries));
+    expect(kb.byTf.d1.bars.length).toBeGreaterThan(200);
+    expect(kb.byTf.d1.resistance.some((z) => z.knownAt < MON)).toBe(true);
+    expect(kb.byTf.w1.resistance.length + kb.byTf.w1.support.length).toBeGreaterThan(0);
+  });
+  it("ignores them on 5pm New York days", () => {
+    const cal = buildCalendar(s, { dayStart: "nyClose", weekendClosed: true });
+    expect(buildHistory(cal, dailySeries, { dayStart: "nyClose", weekendClosed: true }, 900).dOff).toBe(0);
   });
 });

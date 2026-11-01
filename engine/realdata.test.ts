@@ -166,9 +166,12 @@ describe.each(CONFIGS)("real EURUSD, %s", (_name, over) => {
 // Model 1, the three-candle CRT
 const M1_CONFIGS: [string, Partial<Config>][] = [
   ["Model 1", {}],
-  ["Model 1, no structure bias", { bias: "off" }],
-  ["Model 1, daily structure only, any fresh key level", { bias: "dailySwings", keyFit: false }],
-  ["Model 1, weekly ranges too, 5-minute entries, stop past the order block candle", { crt: ["h4", "day", "week"], entryChart: "m5", bias: "off", obStop: "candle" }]
+  ["Model 1, engulfing at the QM line, no structure", { qmEntry: "engulf", bias: "off" }],
+  ["Model 1, either QM entry, weekly and daily agree, 2-candle only", { qmEntry: "both", bias: "weeklyDaily", crtKind: "two", minR: 0.5 }],
+  ["Model 1, QM on 1-hour for every range, weekly ranges too, any fresh key level", { entryChart: "h1", crt: ["h4", "day", "week"], keyFit: false, bias: "weeklySwings" }],
+  ["Model 1, order block entry, 3-candle only", { m1Entry: "ob", crtKind: "three", bias: "weeklyDaily", minR: 2 }],
+  ["Model 1, order block entry, no structure, any fresh key level", { m1Entry: "ob", bias: "off", keyFit: false }],
+  ["Model 1, order block entry, weekly ranges too, 5-minute entries, stop past the order block candle", { m1Entry: "ob", crt: ["h4", "day", "week"], entryChart: "m5", bias: "off", obStop: "candle" }]
 ];
 
 describe.each(M1_CONFIGS)("real EURUSD, %s", (_name, over) => {
@@ -194,29 +197,46 @@ describe.each(M1_CONFIGS)("real EURUSD, %s", (_name, over) => {
       const d = tr.dir, m = tr.m1!;
       expect(cfg.crt).toContain(tr.tf);
       expect(tr.model).toBe("model1");
-      expect(m.inside).toBeGreaterThanOrEqual(1);
+      if (cfg.crtKind === "three") expect(m.inside).toBeGreaterThanOrEqual(1);
+      if (cfg.crtKind === "two") expect(m.inside).toBe(0);
       expect(m.after).toBeLessThanOrEqual(cfg.sweepWindow);
       expect(d * (tr.entry - tr.stop), `risk ${tr.id}`).toBeGreaterThan(0);
       expect(d * (tr.tp2 - tr.entry), `tp2 ${tr.id}`).toBeGreaterThan(0);
       expect(d * (tr.mid - tr.entry), `past 50% ${tr.id}`).toBeGreaterThan(0);
       expect(tr.plannedR).toBeGreaterThanOrEqual(cfg.minR - 1e-9);
-      // the sweep took the range, then the MSS, the inducement and the fill came in that order
+      // the sweep took the range before the break (or the MSS) and the entry
       expect(d * (tr.sweepPrice - (d === 1 ? tr.rangeLow : tr.rangeHigh))).toBeLessThan(0);
       expect(tr.sweepT).toBeLessThan(tr.mssT);
-      expect(m.mssFrom).toBeLessThan(tr.sweepT);
-      expect(m.idmT).toBeGreaterThanOrEqual(tr.mssT - m.entryDt);
-      expect(m.idmT).toBeLessThan(tr.entryT);
-      // a limit at the order block, no closer than the inducement, or better if price jumped past it
-      expect(d * (m.limit - tr.entry)).toBeGreaterThanOrEqual(-1e-9);
-      expect(d * (m.limit - m.idm)).toBeLessThanOrEqual(1e-9);
-      if (cfg.obStop === "tip") expect(d * (tr.sweepPrice - tr.stop)).toBeGreaterThan(0);
-      // the key level fits the structure, and the order sat inside it
+      expect(tr.mssT).toBeLessThan(tr.entryT);
       expect(tr.keyLevel).not.toBeNull();
       if (cfg.keyFit) expect(tr.keyLevel!.fit).not.toBe("any");
-      const tol = 0.1 * (tr.rangeHigh - tr.rangeLow) + 1e-9;
-      if (cfg.keyInside) {
-        expect(m.limit).toBeGreaterThanOrEqual(tr.keyLevel!.bottom - tol);
-        expect(m.limit).toBeLessThanOrEqual(tr.keyLevel!.top + tol);
+      if (m.how === "ob") {
+        // the MSS, the inducement, then a limit at the order block, no closer than the inducement
+        expect(m.mssFrom).toBeLessThan(tr.sweepT);
+        expect(m.idmT).toBeGreaterThanOrEqual(tr.mssT - m.entryDt);
+        expect(m.idmT).toBeLessThan(tr.entryT);
+        expect(d * (m.limit - tr.entry)).toBeGreaterThanOrEqual(-1e-9);
+        expect(d * (m.limit - m.idm)).toBeLessThanOrEqual(1e-9);
+        if (cfg.obStop === "tip") expect(d * (tr.sweepPrice - tr.stop)).toBeGreaterThan(0);
+        const tol = 0.1 * (tr.rangeHigh - tr.rangeLow) + 1e-9;
+        if (cfg.keyInside) {
+          expect(m.limit).toBeGreaterThanOrEqual(tr.keyLevel!.bottom - tol);
+          expect(m.limit).toBeLessThanOrEqual(tr.keyLevel!.top + tol);
+        }
+      } else {
+        // the QM shape: the Apex past the QM line, the breakout level on the other side, the break, then the entry
+        const q = tr.qm!;
+        expect(m.how).toBe(cfg.qmEntry === "engulf" ? "engulf" : cfg.qmEntry === "retest" ? "retest" : m.how);
+        expect(q.head).toBe(tr.sweepPrice);
+        expect(d * (q.head - q.level)).toBeLessThan(0);
+        expect(d * (q.smsLevel - q.level)).toBeGreaterThan(0);
+        expect(q.shoulderT).toBeLessThan(m.idmT);
+        expect(m.idmT).toBeLessThan(q.headT);
+        expect(q.smsT).toBe(tr.mssT);
+        expect(d * (q.head - tr.stop)).toBeGreaterThan(0); // the stop is past the Apex
+        // a limit at the breakout level fills there or better; an engulfing entry is the candle's close
+        if (m.how === "retest") expect(d * (q.smsLevel - tr.entry)).toBeGreaterThanOrEqual(-1e-9);
+        else expect(m.limit).toBe(tr.entry);
       }
       if (tr.reason === "stop") expect(tr.r).toBeLessThanOrEqual(-0.999);
       if (tr.reason === "tp2") expect(tr.r).toBeGreaterThan(0);

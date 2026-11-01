@@ -261,15 +261,36 @@ function M1Sheet({ t, market, candles, err, money, moneyCfg, dref, onClose }: {
     ? `, into a ${TF_LABEL[k.tf]} ${kindName(k.kind, t.dir)} at ${k.top === k.bottom ? px(k.top) : `${px(k.bottom)} to ${px(k.top)}`}${k.fit && k.fit !== "any" ? `, ${fitText(k.fit, t.dir)}` : ""}.`
     : ".";
   const ob = t.zone?.ob;
+  const q = t.qm;
+  const isQm = m.how !== "ob" && !!q;
+  const after = m.after ? `, ${m.after} candle${m.after === 1 ? "" : "s"} after the sweep candle` : "";
   const steps: { t?: number; day?: string; text: string }[] = [
     { day: t.tf === "h4" ? fmtDay(t.rangeDayT).split(" ")[0] : t.tf === "day" ? fmtDay(t.rangeDayT + 12 * 3600).split(" ")[0] : "Week", text: `The range (${rangeWhen}): high ${px(t.rangeHigh)}, low ${px(t.rangeLow)}, 50% at ${px(t.mid)}.` },
-    { text: `${m.inside} inside candle${m.inside === 1 ? "" : "s"} after it, taking neither the high nor the low.` },
-    { t: t.sweepT, text: `${t.sweepT >= t.sweepDayT + PERIOD[t.tf] ? "A later candle" : "The next candle"} took the range ${long ? "low" : "high"}, reaching ${px(t.sweepPrice)}${level}` },
-    { t: t.mssT - m.entryDt, text: `A ${chart} candle closed ${long ? "above" : "below"} the ${px(t.mssLevel)} swing ${long ? "high" : "low"}: the MSS.${ob ? ` The order block is the last ${long ? "down" : "up"} candle at the ${long ? "bottom" : "top"}: ${px(ob.bottom)} to ${px(ob.top)}.` : ""}` },
-    { t: m.idmT, text: `The first pullback ${long ? "bottomed" : "topped"} at ${px(m.idm)}: the inducement. ${long ? "Buy" : "Sell"} limit at ${px(m.limit)}.` },
-    { t: t.entryT - m.entryDt, text: `Price took the inducement and came back to the order block. ${long ? "Bought" : "Sold"} at ${px(t.entry)}${m.after ? `, ${m.after} candle${m.after === 1 ? "" : "s"} after the sweep candle` : ""}.` },
-    { text: `Stop ${px(t.stop)}, risking ${units(t.risk, market)}. Target ${px(t.tp2)}, ${t.plannedR.toFixed(1)}R away${t.partial ? `, with half off at ${px(t.tp1)}.` : "."}` }
+    { text: m.inside ? `${m.inside} inside candle${m.inside === 1 ? "" : "s"} after it, taking neither the high nor the low: a 3-candle CRT.` : "No inside candle: a 2-candle CRT." }
   ];
+  if (isQm) {
+    steps.push(
+      { t: q.shoulderT, text: `The QM line: the swing ${long ? "low" : "high"} at ${px(q.level)}.` },
+      { t: m.idmT, text: `The breakout level: the ${long ? "high" : "low"} at ${px(q.smsLevel)}, between the QM line and the sweep.` },
+      { t: t.sweepT, text: `${t.sweepT >= t.sweepDayT + PERIOD[t.tf] ? "A later candle" : "The next candle"} took the range ${long ? "low" : "high"} and went past the QM line to ${px(t.sweepPrice)}, the Apex${level}` },
+      { t: q.smsT - m.entryDt, text: `A ${chart} candle closed ${long ? "above" : "below"} the breakout level, ${px(q.smsLevel)}: the break.` },
+      {
+        t: t.entryT - m.entryDt,
+        text: m.how === "retest"
+          ? `Price came back to the breakout level. ${long ? "Bought" : "Sold"} at ${px(t.entry)}${after}.`
+          : `An engulfing ${chart} candle back at the QM line. ${long ? "Bought" : "Sold"} at its close, ${px(t.entry)}${after}.`
+      },
+      { text: `Stop ${px(t.stop)}, past the Apex, risking ${units(t.risk, market)}. Target ${px(t.tp2)}, ${t.plannedR.toFixed(1)}R away${t.partial ? `, with half off at ${px(t.tp1)}.` : "."}` }
+    );
+  } else {
+    steps.push(
+      { t: t.sweepT, text: `${t.sweepT >= t.sweepDayT + PERIOD[t.tf] ? "A later candle" : "The next candle"} took the range ${long ? "low" : "high"}, reaching ${px(t.sweepPrice)}${level}` },
+      { t: t.mssT - m.entryDt, text: `A ${chart} candle closed ${long ? "above" : "below"} the ${px(t.mssLevel)} swing ${long ? "high" : "low"}: the MSS.${ob ? ` The order block is the last ${long ? "down" : "up"} candle at the ${long ? "bottom" : "top"}: ${px(ob.bottom)} to ${px(ob.top)}.` : ""}` },
+      { t: m.idmT, text: `The first pullback ${long ? "bottomed" : "topped"} at ${px(m.idm)}: the inducement. ${long ? "Buy" : "Sell"} limit at ${px(m.limit)}.` },
+      { t: t.entryT - m.entryDt, text: `Price took the inducement and came back to the order block. ${long ? "Bought" : "Sold"} at ${px(t.entry)}${after}.` },
+      { text: `Stop ${px(t.stop)}, risking ${units(t.risk, market)}. Target ${px(t.tp2)}, ${t.plannedR.toFixed(1)}R away${t.partial ? `, with half off at ${px(t.tp1)}.` : "."}` }
+    );
+  }
   if (t.partialT) steps.push({ t: t.partialT, text: "Half closed at 50%. The stop moved to the entry price." });
   steps.push({ t: t.exitT, text: `${exitText(t)} at ${px(t.exit)}: ${fmtR(t.r, 2)} on the whole trade.` });
   const showDay = t.tf !== "h4";
@@ -281,7 +302,7 @@ function M1Sheet({ t, market, candles, err, money, moneyCfg, dref, onClose }: {
       <div className="sheet-inner">
         <div className="sheet-head">
           <div>
-            <h3 id="sheet-h">{long ? "Buy" : "Sell"} on {fmtDate(t.entryT - 1)}, {name} CRT, {chart} entry</h3>
+            <h3 id="sheet-h">{long ? "Buy" : "Sell"} on {fmtDate(t.entryT - 1)}, {name} {m.inside ? "3" : "2"}-candle CRT, {isQm ? (m.how === "retest" ? "breakout retest" : "engulfing at the QM line") : "order block"} on {chart}</h3>
             <p className={tone(t.r)}>{fmtR(t.r, 2)}{money && !money.skipped ? ` (${fmtUsd(money.pnlUsd)})` : ""}. {exitText(t)}.</p>
           </div>
           <button className="close" onClick={() => dref.current?.close()} aria-label="Close">
@@ -297,9 +318,14 @@ function M1Sheet({ t, market, candles, err, money, moneyCfg, dref, onClose }: {
             <li><i style={{ borderColor: "var(--fog)" }} />Range high and low</li>
             <li><i className="dash" style={{ borderColor: "var(--gold)" }} />50%</li>
             {k && <li><i className="box" style={{ borderColor: "rgba(154,163,176,0.6)", background: "rgba(154,163,176,0.12)" }} />Key level</li>}
-            <li><i className="box" style={{ borderColor: "rgba(227,176,75,0.6)", background: "rgba(227,176,75,0.13)" }} />Order block</li>
-            <li><i className="dash" style={{ borderColor: "var(--paper)" }} />The swing the MSS broke</li>
-            <li><i className="dash" style={{ borderColor: "var(--gold)" }} />Inducement</li>
+            {isQm ? <>
+              <li><i className="dash" style={{ borderColor: "var(--gold)" }} />QM line</li>
+              <li><i className="dash" style={{ borderColor: "var(--paper)" }} />Breakout level</li>
+            </> : <>
+              <li><i className="box" style={{ borderColor: "rgba(227,176,75,0.6)", background: "rgba(227,176,75,0.13)" }} />Order block</li>
+              <li><i className="dash" style={{ borderColor: "var(--paper)" }} />The swing the MSS broke</li>
+              <li><i className="dash" style={{ borderColor: "var(--gold)" }} />Inducement</li>
+            </>}
             <li><i className="dash" style={{ borderColor: "var(--down)" }} />Stop</li>
             <li><i style={{ borderColor: "var(--up)" }} />Target</li>
           </ul>

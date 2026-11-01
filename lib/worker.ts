@@ -16,6 +16,8 @@ const post = (msg: FromWorker) => ctx.postMessage(msg);
 
 interface Stored { s: Series; pipSize: number | null; shortBy: string | null }
 const store = new Map<string, Stored>();
+/** Daily candles reaching years back, by the same key: Model 1 reads structure and key levels on them. */
+const dailyStore = new Map<string, Series>();
 /** Prepared candles, by series, related market and the settings that change them. */
 const preparedCache = new Map<string, Prepared>();
 /** The one-market view: which stored candles it reads. */
@@ -41,7 +43,7 @@ function preparedFor(key: string, partnerKey: string | null, cfg: Config) {
     if (!e) throw new Error("Those prices aren't loaded yet.");
     const partner = partnerKey ? store.get(partnerKey)?.s ?? null : null;
     if (preparedCache.size > 60) preparedCache.clear(); // keep memory in check
-    p = prepare(e.s, cfg, partner && partner.n ? partner : null);
+    p = prepare(e.s, cfg, partner && partner.n ? partner : null, dailyStore.get(key) ?? null);
     preparedCache.set(id, p);
   }
   return p;
@@ -93,6 +95,10 @@ ctx.onmessage = async (e: MessageEvent<ToWorker>) => {
       put(msg.key, { s, pipSize: msg.pipSize, shortBy: msg.shortBy });
       if (!s.n) throw new Error("No prices came back for this market.");
       post({ type: "stored", job: msg.job, info: infoOf(msg.key, store.get(msg.key)!) });
+    } else if (msg.type === "storeDaily") {
+      dailyStore.set(msg.key, { n: msg.t.length, t: msg.t, o: msg.o, h: msg.h, l: msg.l, c: msg.c });
+      for (const k of [...preparedCache.keys()]) if (k.split("|")[0] === msg.key) preparedCache.delete(k);
+      post({ type: "storedDaily", job: msg.job, count: msg.t.length });
     } else if (msg.type === "use") {
       useStored(msg.job, msg.marketId, msg.key, msg.partnerKey, msg.smt);
     } else if (msg.type === "run") {

@@ -14,33 +14,44 @@ function model1Variants(cfg: Config): Variant[] {
   }
   if (!has("h4")) v.push({ key: "add-h4", label: "Add 4-hour ranges", change: { crt: [...cfg.crt, "h4"] } });
   if (!has("week")) v.push({ key: "add-week", label: "Add weekly ranges", change: { crt: [...cfg.crt, "week"] } });
-  if (cfg.bias === "weeklyDaily") {
-    v.push({ key: "bias-w", label: "Weekly structure only", change: { bias: "weeklySwings" } });
-    v.push({ key: "bias-d", label: "Daily structure only", change: { bias: "dailySwings" } });
-    v.push({ key: "bias-off", label: "No structure rule", change: { bias: "off" } });
-  } else v.push({ key: "bias-wd", label: "Weekly and daily structure agree", change: { bias: "weeklyDaily" } });
+  if (cfg.crtKind !== "three") v.push({ key: "three", label: "3-candle CRTs only (an inside candle first)", change: { crtKind: "three" } });
+  if (cfg.crtKind !== "two") v.push({ key: "two", label: "2-candle CRTs only", change: { crtKind: "two" } });
+  if (cfg.crtKind !== "both") v.push({ key: "both", label: "2-candle and 3-candle CRTs", change: { crtKind: "both" } });
+  const biases: [Config["bias"], string][] = [
+    ["dailySwings", "Daily structure only"], ["weeklyLead", "Weekly structure leads"], ["weeklyDaily", "Weekly and daily structure agree"],
+    ["weeklySwings", "Weekly structure only"], ["off", "No structure rule"]
+  ];
+  for (const [b, label] of biases) if (cfg.bias !== b) v.push({ key: `bias-${b}`, label, change: { bias: b } });
+  if (cfg.m1Entry === "qm") {
+    if (cfg.qmEntry !== "retest") v.push({ key: "qm-retest", label: "Breakout retest only", change: { qmEntry: "retest" } });
+    if (cfg.qmEntry !== "engulf") v.push({ key: "qm-engulf", label: "Engulfing at the QM line only", change: { qmEntry: "engulf" } });
+    v.push({ key: "ob", label: "The order block entry (MSS and inducement)", change: { m1Entry: "ob" } });
+    if (cfg.entryChart !== "m15") v.push({ key: "m15", label: "QM on 15-minute candles for every range", change: { entryChart: "m15" } });
+    if (cfg.entryChart !== "h1") v.push({ key: "h1", label: "QM on 1-hour candles for every range", change: { entryChart: "h1" } });
+  } else {
+    v.push({ key: "qm", label: "The QM entries (breakout retest or engulfing)", change: { m1Entry: "qm" } });
+    v.push(cfg.keyInside
+      ? { key: "inside", label: "The entry needn't be inside the key level", change: { keyInside: false } }
+      : { key: "inside", label: "The entry must be inside the key level", change: { keyInside: true } });
+    v.push(cfg.obStop === "tip"
+      ? { key: "stop", label: "Stop just past the order block candle", change: { obStop: "candle" } }
+      : { key: "stop", label: "Stop past the sweep's tip", change: { obStop: "tip" } });
+  }
   if (cfg.requireKeyLevel) {
     v.push(cfg.keyFit
       ? { key: "fit", label: "Any fresh key level, fitting the structure or not", change: { keyFit: false } }
       : { key: "fit", label: "Key level must fit the structure", change: { keyFit: true } });
-    v.push(cfg.keyInside
-      ? { key: "inside", label: "The entry needn't be inside the key level", change: { keyInside: false } }
-      : { key: "inside", label: "The entry must be inside the key level", change: { keyInside: true } });
     v.push({ key: "key", label: "No key level needed", change: { requireKeyLevel: false } });
   } else v.push({ key: "key", label: "Sweep into a key level", change: { requireKeyLevel: true } });
   if (cfg.sweepWindow > 0) v.push({ key: "sw", label: "The sweep candle only", change: { sweepWindow: 0 } });
   v.push({ key: "sw-more", label: `${cfg.sweepWindow + 2} candles after the sweep candle`, change: { sweepWindow: cfg.sweepWindow + 2 } });
-  if (cfg.entryChart !== "m5") v.push({ key: "m5", label: "5-minute entries on every range", change: { entryChart: "m5" } });
-  if (cfg.entryChart !== "m15") v.push({ key: "m15", label: "15-minute entries on every range", change: { entryChart: "m15" } });
-  v.push(cfg.obStop === "tip"
-    ? { key: "stop", label: "Stop just past the order block candle", change: { obStop: "candle" } }
-    : { key: "stop", label: "Stop past the sweep's tip", change: { obStop: "tip" } });
   v.push(cfg.partialAtTp1
     ? { key: "partial", label: "Keep it all for the target", change: { partialAtTp1: false } }
     : { key: "partial", label: "Take half at 50%", change: { partialAtTp1: true } });
   v.push(cfg.midCancels
     ? { key: "mid", label: "Keep the order after price reaches 50%", change: { midCancels: false } }
     : { key: "mid", label: "Cancel the order once price reaches 50%", change: { midCancels: true } });
+  if (cfg.minR < 2) v.push({ key: "minr2", label: "Skip targets under 2R", change: { minR: 2 } });
   if (cfg.minR > 0) v.push({ key: "minr", label: `Take targets under ${cfg.minR}R too`, change: { minR: 0 } });
   if (cfg.maxR >= 1000) v.push({ key: "cap", label: "Cap the target at 4R", change: { maxR: 4 } });
   if (cfg.driftUp) v.push(cfg.side === "both"

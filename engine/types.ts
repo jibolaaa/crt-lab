@@ -29,9 +29,10 @@ export interface Bar {
 /**
  * The first six are the old rules' weekly bias. Model 1 reads structure from swings: lower highs and
  * lower lows for sells, higher highs and higher lows for buys. "weeklyDaily": the weekly and the
- * daily both agree. "weeklySwings" or "dailySwings": that chart alone.
+ * daily both agree. "weeklyLead": the weekly agrees and the daily isn't the other way (it can be
+ * mixed). "weeklySwings" or "dailySwings": that chart alone.
  */
-export type BiasMode = "off" | "weeklyCrt" | "structure" | "premiumDiscount" | "majority" | "allAgree" | "weeklyDaily" | "weeklySwings" | "dailySwings";
+export type BiasMode = "off" | "weeklyCrt" | "structure" | "premiumDiscount" | "majority" | "allAgree" | "weeklyDaily" | "weeklyLead" | "weeklySwings" | "dailySwings";
 /** "any": an order block or a gap, joined when they overlap. "obFvg": a gap with the order block before it. */
 /**
  * "sweep": the order block is the candle that made the sweep (the last up candle at a swept high,
@@ -165,11 +166,25 @@ export interface Config {
   keyFit: boolean;
   /** Model 1: the stop goes past the sweep's tip ("tip") or just past the order block candle ("candle"). */
   obStop: "tip" | "candle";
-  /** Model 1: the chart the MSS, inducement and entry are read on. "auto": 5-minute for 4-hour ranges, 15-minute for daily, 30-minute for weekly. */
+  /**
+   * Model 1: the chart the entry is read on. "auto" for the QM entries: 15-minute for 4-hour ranges,
+   * 1-hour for daily, 4-hour for weekly. For the order block entry: 5-minute, 15-minute, 30-minute.
+   */
   entryChart: EntryChart;
+  /** Model 1: "two": candle 2 sweeps candle 1 straight away. "three": after one or more inside candles. "both": either. */
+  crtKind: "both" | "two" | "three";
+  /**
+   * Model 1's entry. "qm": after the sweep's low (the Apex) goes below the low before it (the QM line)
+   * and price closes back above the high between them (the breakout), a buy at the breakout level's
+   * retest, or on an engulfing candle at the QM line (see `qmEntry`). "ob": the MSS, the inducement,
+   * then a limit at the order block.
+   */
+  m1Entry: "qm" | "ob";
+  /** Model 1, QM entries: "retest" a limit at the breakout level, "engulf" an engulfing candle at the QM line, "both" whichever comes first. */
+  qmEntry: "both" | "engulf" | "retest";
 }
 
-export type EntryChart = "auto" | "m5" | "m15" | "m30";
+export type EntryChart = "auto" | "m5" | "m15" | "m30" | "h1" | "h4";
 
 /** The old rules: a day or week as candle 1, candle 2 sweeps it, then a 1-hour zone and a 5-minute BOS. */
 export const CLASSIC_CONFIG: Config = {
@@ -211,14 +226,18 @@ export const CLASSIC_CONFIG: Config = {
   keyInside: true,
   keyFit: true,
   obStop: "tip",
-  entryChart: "auto"
+  entryChart: "auto",
+  crtKind: "both",
+  m1Entry: "qm",
+  qmEntry: "both"
 };
 
 /** What switching to each model sets. */
 export const MODEL_RULES: Record<"model1" | "classic", Partial<Config>> = {
   model1: {
-    entry: "model1", crt: ["h4", "day"], bias: "weeklyDaily", keyLevelKinds: ["ob", "fvg", "rb", "breaker", "flip"],
-    maxR: 1000, minR: 2, partialAtTp1: true, timeStop: false, mustHave: [], minPct: 0, midCancels: false
+    entry: "model1", crt: ["h4", "day"], bias: "dailySwings", keyLevelKinds: ["ob", "fvg", "rb", "breaker", "flip"],
+    crtKind: "both", m1Entry: "qm", qmEntry: "both",
+    maxR: 1000, minR: 1, partialAtTp1: true, timeStop: false, mustHave: [], minPct: 0, midCancels: false
   },
   classic: {
     entry: "shift", crt: ["day", "week"], bias: "off", keyLevelKinds: ["old", "ob", "fvg", "rb"],
@@ -227,10 +246,12 @@ export const MODEL_RULES: Record<"model1" | "classic", Partial<Config>> = {
 };
 
 /**
- * The page's rules: Model 1, the three-candle CRT. For a sell: a range candle (4-hour or daily), one or
- * more inside candles, then a candle that takes the range high into a key level that fits the
- * structure, while the weekly and daily structure are both bearish. Then an MSS, the inducement, and a
- * limit at the order block. See model1.ts.
+ * The page's rules: Model 1. For a sell: a range candle (4-hour or daily), straight away or after inside
+ * candles, then a candle that takes the range high into a key level that fits the structure, while the
+ * daily structure is bearish (it had the best win rate of the structure rules on EUR/USD). On the entry
+ * chart (15-minute for 4-hour ranges, 1-hour for daily): the QM line, the Apex above it, a close below
+ * the breakout level, then a sell at the breakout level's retest or on an engulfing candle back at the
+ * QM line, whichever comes first, with the stop above the Apex. See model1.ts.
  */
 export const DEFAULT_CONFIG: Config = { ...CLASSIC_CONFIG, ...MODEL_RULES.model1 };
 
@@ -354,6 +375,8 @@ export interface M1Info {
   idmT: number;
   limit: number; // where the order sat: the order block, no closer than the inducement
   after: number; // candles after the sweep candle the entry came in (0 = the sweep candle)
+  /** How it came in: a limit at the order block, a breakout retest, or an engulfing candle at the QM line. */
+  how: "ob" | "retest" | "engulf";
 }
 
 export type LiveStage =
@@ -405,6 +428,8 @@ export interface LiveSetup {
     mss: number | null;
     ob: { top: number; bottom: number } | null;
     idm: number | null;
+    /** QM entries: the QM line, the breakout level, the Apex, and whether price has closed past the breakout. */
+    qm?: { line: number; breakout: number; apex: number; broke: boolean } | null;
   };
 }
 

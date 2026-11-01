@@ -64,6 +64,7 @@ export type ToWorker =
       t: Float64Array; o: Float64Array; h: Float64Array; l: Float64Array; c: Float64Array;
       pipSize: number | null; shortBy: string | null;
     }
+  | { type: "storeDaily"; job: number; key: string; t: Float64Array; o: Float64Array; h: Float64Array; l: Float64Array; c: Float64Array }
   | { type: "use"; job: number; marketId: string; key: string; partnerKey: string | null; smt: { name: string; ok: boolean } | null }
   | { type: "run"; job: number; cfg: Config; matters: boolean }
   | { type: "candles"; job: number; from: number; to: number }
@@ -73,6 +74,7 @@ export type FromWorker =
   | { type: "progress"; job: number; text: string; fraction?: number }
   | { type: "loaded"; job: number; info: DataInfo }
   | { type: "stored"; job: number; info: StoredInfo }
+  | { type: "storedDaily"; job: number; count: number }
   | { type: "result"; job: number; result: RunResult }
   | { type: "matters"; job: number; rows: MatterRow[] }
   | { type: "targets"; job: number; rows: TargetRow[] }

@@ -7,8 +7,9 @@ import { simulate, type MoneyCfg } from "../lib/money";
 import type { Columns, DataInfo, FromWorker, MatterRow, Request, ScanMarket, StoredInfo, TargetRow, ToWorker } from "../lib/protocol";
 import { combine, marketCfg, type ScanRow } from "../lib/scan";
 import { readHash, writeHash, type View } from "../lib/urlstate";
+import { monthStarts, sliceResult } from "../lib/period";
 import { fmtR } from "../lib/format";
-import { CheckFilter, MarketBar, Settings } from "./controls";
+import { CheckFilter, Choice, MarketBar, Settings } from "./controls";
 import { Now } from "./now";
 import { Funnel, Grades, Matters, StatsTable, Targets, Verdict } from "./results";
 import { Trades, type Candles } from "./trades";
@@ -18,11 +19,14 @@ import { AllMarkets } from "./allmarkets";
 const DATA_URL = "/data/eurusd-15m.bin";
 /** Live markets load 5-minute candles, so daily CRTs can look for 5-minute breaks of structure. */
 const LIVE_GRANULARITY = 300;
+/** Daily candles load this far back too, so the weekly and daily structure and key levels can be read. */
+const DAILY_DAYS = 6 * 365;
 const MONEY_KEY = "crt-lab:money";
 const ALL_KEY = "crt-lab:all-markets:v2"; // v2: the list now starts with the four pairs
 const specKey = (id: string) => `crt-lab:spec:${id}`;
 const DEFAULT_MONEY: MoneyCfg = { account: 10, mode: "lots", lots: 0.01, riskPct: 1, leverage: 500 };
 const YEAR = 365 * 86400;
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 // Remembered on this phone only, for convenience; the page works without it.
 function load<T>(key: string, fallback: T): T {
@@ -54,9 +58,9 @@ function whenVisible(): Promise<void> {
 const dropped = (shortBy: string | null | undefined) => !!shortBy && shortBy.startsWith("The connection");
 
 /** Candles that have closed, as columns for the worker. */
-function toColumns(candles: DerivCandle[]): Columns {
+function toColumns(candles: DerivCandle[], granularity = LIVE_GRANULARITY): Columns {
   const now = Date.now() / 1000;
-  const rows = candles.filter((c) => c.epoch + LIVE_GRANULARITY <= now); // the newest candle is usually still forming
+  const rows = candles.filter((c) => c.epoch + granularity <= now); // the newest candle is usually still forming
   const col = (k: "epoch" | "open" | "high" | "low" | "close") => Float64Array.from(rows, (r) => r[k]);
   return { t: col("epoch"), o: col("open"), h: col("high"), l: col("low"), c: col("close") };
 }
@@ -79,6 +83,7 @@ export default function Lab() {
   const [loading, setLoading] = useState<{ text: string; fraction?: number } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
+  const [fromKey, setFromKey] = useState("all"); // "From": the start of a month, or all the prices
   const [matters, setMatters] = useState<MatterRow[] | null>(null);
   const [targets, setTargets] = useState<TargetRow[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -179,6 +184,12 @@ export default function Lab() {
       const cols = toColumns(res.candles);
       const m = await ask({ type: "store", key: symbol, ...cols, pipSize: res.pipSize, shortBy: res.shortBy }, [cols.t.buffer, cols.o.buffer, cols.h.buffer, cols.l.buffer, cols.c.buffer]).done;
       if (m.type !== "stored") throw new Error(m.type === "error" ? m.message : "Couldn't keep the prices.");
+      // years of daily candles for the structure and key levels; without them the 5-minute history is used
+      try {
+        const d = await loadDerivCandles(symbol, { from: Math.floor(now - DAILY_DAYS * 86400), granularity: 86400, maxCandles: 4000 });
+        const dc = toColumns(d.candles, 86400);
+        await ask({ type: "storeDaily", key: symbol, ...dc }, [dc.t.buffer, dc.o.buffer, dc.h.buffer, dc.l.buffer, dc.c.buffer]).done;
+      } catch { /* keep going without them */ }
       stored.current.set(symbol, m.info);
       return m.info;
     };
@@ -374,12 +385,17 @@ export default function Lab() {
     ...DEFAULT_CONFIG, spread: defaults.current.spread, stopBuffer: defaults.current.stopBuffer, weekendClosed: c.weekendClosed, usdNews: c.usdNews, driftUp: c.driftUp
   })), []);
 
-  const dollars = useMemo(() => (result ? simulate(result.trades, spec, money) : null), [result, spec, money]);
+  // one market from the start of a month till now
+  const starts = useMemo(() => (result ? monthStarts(result.from, result.to) : []), [result]);
+  const fromStart = starts.length > 1 ? starts.find((m) => m.key === fromKey) ?? null : null; // only while the switch shows
+  useEffect(() => { setFromKey("all"); }, [marketId]);
+  const shown = useMemo(() => (result && fromStart ? sliceResult(result, fromStart.t) : result), [result, fromStart]);
+  const dollars = useMemo(() => (shown ? simulate(shown.trades, spec, money) : null), [shown, spec, money]);
   const scanRows = useMemo(() => allIds.map((id) => scan.rows[id]).filter((r): r is ScanRow => !!r), [allIds, scan]);
   const allTotal = useMemo(() => (view === "all" ? combine(scanRows) : null), [view, scanRows]);
   const ticker = view === "all"
     ? (allTotal && allTotal.markets ? { trades: allTotal.trades, total: allTotal.totalR } : null)
-    : result ? { trades: result.all.trades, total: result.all.totalR } : null;
+    : shown ? { trades: shown.all.trades, total: shown.all.totalR } : null;
   const working = view === "all" ? !!scanStatus : busy || !!loading;
 
   return (
@@ -414,7 +430,16 @@ export default function Lab() {
           <>
             <MarketBar market={market} onMarket={setMarketId} data={data} loading={loading} loadError={loadError} onRetry={() => loadPrices(true)} />
             <Now result={result} market={market} cfg={cfg} loading={!!loading} dt={data?.dt} />
-            <Verdict result={result} data={data} market={market} failed={!!loadError} money={dollars} moneyCfg={money} model1={cfg.entry === "model1"} />
+            <Verdict
+              result={shown} data={data} market={market} failed={!!loadError} money={dollars} moneyCfg={money} model1={cfg.entry === "model1"}
+              picker={starts.length > 1 ? (
+                <Choice
+                  legend="From" name="from" value={fromStart ? fromStart.key : "all"} onChange={setFromKey}
+                  options={[["all", "All"], ...starts.map((m) => [m.key, MONTH_NAMES[new Date(m.t * 1000).getUTCMonth()]] as [string, string])]}
+                  hint="From the start of that month till now."
+                />
+              ) : null}
+            />
           </>
         ) : (
           <AllMarkets ids={allIds} setIds={setAllIds} rows={scanRows} status={scanStatus} errors={scanErrors} cfg={cfg} onOpen={openMarket} onRefresh={refreshAll} />
@@ -447,7 +472,7 @@ export default function Lab() {
           </div>
         )}
 
-        {view === "one" && <Trades result={result} market={market} getCandles={getCandles} money={dollars} moneyCfg={money} dt={data?.dt ?? 900} />}
+        {view === "one" && <Trades result={shown} market={market} getCandles={getCandles} money={dollars} moneyCfg={money} dt={data?.dt ?? 900} />}
 
         <footer className="foot">
           <p>A testing tool, not financial advice. A rule set that made money in the past can still lose from here.</p>

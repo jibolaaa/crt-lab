@@ -45,7 +45,8 @@ export function Now({ result, market, cfg, loading, dt = 900 }: { result: RunRes
         {fmtDay(l.date)}, as of {fmtTime(l.asOf)} UTC ({fmtTime(l.asOf + 3600)} in Lagos). {structure}
       </p>
       {groups.map(({ tf, rows }) => {
-        const c1 = l.setups.find((x) => x.tf === tf && x.age === 0) ?? null;
+        // the 3-candle range when there is one (it did better), else the candle before
+        const c1 = l.setups.find((x) => x.tf === tf && x.age === 0 && !!x.m1?.inside) ?? l.setups.find((x) => x.tf === tf && x.age === 0) ?? null;
         return (
           <div key={tf} className="now-group">
             <h3 className="now-tf">{CRT_LABEL[tf]}</h3>
@@ -56,7 +57,7 @@ export function Now({ result, market, cfg, loading, dt = 900 }: { result: RunRes
             )}
             {c1 && m1 && (
               <p className="now-range">
-                Range: {rangeName(tf, c1.rangeDate)}, high {px(c1.rangeHigh)}, low {px(c1.rangeLow)}, 50% at {px(c1.mid)}, with {c1.m1?.inside ?? 1} inside candle{(c1.m1?.inside ?? 1) === 1 ? "" : "s"} after it.
+                Range: {rangeName(tf, c1.rangeDate)}, high {px(c1.rangeHigh)}, low {px(c1.rangeLow)}, 50% at {px(c1.mid)}{c1.m1?.inside ? `, with ${c1.m1.inside} inside candle${c1.m1.inside === 1 ? "" : "s"} after it (a 3-candle CRT)` : ""}.
               </p>
             )}
             {rows.length === 0 && (
@@ -255,16 +256,34 @@ function describeM1(s: LiveSetup, px: (x: number) => string, cfg: Config): { tit
     ? ` into a ${TF_LABEL[k.tf]} ${kindName(k.kind, s.dir)} at ${k.top === k.bottom ? px(k.top) : `${px(k.bottom)} to ${px(k.top)}`}${k.fit && k.fit !== "any" ? `, ${fitText(k.fit, s.dir)}` : ""}`
     : "";
   const ob = s.m1!.ob;
+  const qm = s.m1!.qm ?? null;
+  const qmEntry = cfg.m1Entry === "qm";
+  const lowHigh = long ? "low" : "high";
   switch (s.stage) {
     case "blocked": {
-      const which = cfg.bias === "weeklySwings" ? "The weekly structure doesn't" : cfg.bias === "dailySwings" ? "The daily structure doesn't" : "The weekly and daily structure don't both";
-      return { title: "Against the structure", text: `${which} point ${long ? "up" : "down"}, so no ${long ? "buys" : "sells"} on this range.` };
+      const way = long ? "up" : "down";
+      const text = cfg.bias === "weeklyLead"
+        ? `The weekly structure doesn't point ${way}, or the daily points the other way, so no ${long ? "buys" : "sells"} on this range.`
+        : `${cfg.bias === "weeklySwings" ? "The weekly structure doesn't" : cfg.bias === "dailySwings" ? "The daily structure doesn't" : "The weekly and daily structure don't both"} point ${way}, so no ${long ? "buys" : "sells"} on this range.`;
+      return { title: "Against the structure", text };
     }
     case "waiting":
       return { title: "Waiting for the sweep", text: `Needs a candle to take the range ${side}, ${px(edge)}, into a key level, while candles keep closing inside the range.` };
     case "noKey":
       return { title: "Swept, but not into a key level" + later, text: `Took the range ${side} (to ${swept}) without reaching a fresh key level that fits the structure. No trade unless price reaches one while the range holds.` };
     case "key":
+      if (qmEntry) {
+        return qm
+          ? {
+              title: "Swept into a key level" + later,
+              text: `Took the range ${side} (to ${swept}, the Apex)${level}. QM line ${px(qm.line)}. Next: a ${chart} close ${long ? "above" : "below"} ${px(qm.breakout)}, the breakout level.`,
+              hot: true
+            }
+          : {
+              title: "Swept into a key level" + later,
+              text: `Took the range ${side} (to ${swept})${level}. No QM yet: the sweep has to go past a swing ${lowHigh} on the ${chart} chart. Waiting for a deeper sweep.`
+            };
+      }
       return {
         title: "Swept into a key level" + later,
         text: `Took the range ${side} (to ${swept})${level}. Next: a ${chart} close ${long ? "above" : "below"} ${s.level !== null ? px(s.level) : "the last swing"}, the MSS.`,
@@ -278,6 +297,21 @@ function describeM1(s: LiveSetup, px: (x: number) => string, cfg: Config): { tit
       };
     case "limit": {
       const q = s.order!;
+      const plan = `Stop ${px(q.stop)}, past the Apex, target ${px(q.target)} (${q.r.toFixed(1)}R)${cfg.partialAtTp1 ? `, half at ${px(s.mid)}` : ""}.`;
+      if (qmEntry && qm) {
+        if (cfg.qmEntry === "engulf") {
+          return {
+            title: "Waiting at the QM line" + later,
+            text: `Price closed past the breakout level, ${px(qm.breakout)}. ${long ? "Buy" : "Sell"} on an engulfing ${chart} candle back at the QM line, ${px(qm.line)}. ${plan}`,
+            hot: true
+          };
+        }
+        return {
+          title: `${long ? "Buy" : "Sell"} limit set` + later,
+          text: `${long ? "Buy" : "Sell"} limit at ${px(q.level)}, the breakout level's retest (QM line ${px(qm.line)}). ${plan}`,
+          hot: true
+        };
+      }
       return {
         title: `${long ? "Buy" : "Sell"} limit set` + later,
         text: `${long ? "Buy" : "Sell"} limit at ${px(q.level)}, the order block, once price takes the inducement at ${px(s.m1!.idm ?? q.level)}. Stop ${px(q.stop)}, target ${px(q.target)} (${q.r.toFixed(1)}R)${cfg.partialAtTp1 ? `, half at ${px(s.mid)}` : ""}.`,

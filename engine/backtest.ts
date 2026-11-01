@@ -21,7 +21,7 @@
 //     candle 1's low. Under `minR` the trade is skipped, and under `fullR` it
 //     needs at least `lowRPct` of the checklist.
 import { biasArray, buildCalendar, weeklyBias, type Calendar, type WeeklyBias } from "./bars";
-import { dayKey, inSessions, nfpTimes, usDst } from "./calendar";
+import { dayKey, inSessions, nfpTimes, usDst, weekKey } from "./calendar";
 import { build4h, candleSeconds, structure, type Structure } from "./htf";
 import { findLevels, keyLevelFor, levelBook, markTouches, type Level, type LevelBook } from "./levels";
 import { stats } from "./stats";
@@ -120,6 +120,61 @@ export interface Prepared {
   m15: Candles; // entries for weekly CRTs
   /** A related market for the SMT check, if one was loaded. */
   partner: Partner | null;
+  /** Days and weeks reaching further back than the loaded candles, for Model 1's structure and key levels. */
+  hist: History;
+}
+
+/**
+ * Daily candles from before the loaded ones, then the loaded days (and weeks the same way), so the
+ * weekly and daily structure and the daily and weekly key levels can be read when only a few months
+ * of 5-minute candles load. `dOff` and `wOff` are where the loaded days and weeks start in them.
+ */
+export interface History { days: Bar[]; weeks: Bar[]; dOff: number; wOff: number }
+
+/**
+ * The history: Deriv's daily candles (UTC days) before the first loaded day, then the loaded days.
+ * Without daily candles, or on 5pm New York days, it is just the loaded days and weeks.
+ */
+export function buildHistory(cal: Calendar, daily: Series | null, cfg: Pick<Config, "dayStart" | "weekendClosed">, dt: number): History {
+  if (!daily || !daily.n || !cal.days.length || cfg.dayStart !== "utc") return { days: cal.days, weeks: cal.weeks, dOff: 0, wOff: 0 };
+  const first = cal.days[0].key;
+  const pre: Bar[] = [];
+  for (let i = 0; i < daily.n; i++) {
+    const t = daily.t[i];
+    const key = dayKey(t, cfg.dayStart, cfg.weekendClosed);
+    if (key >= first) break;
+    const end = t + 86400 - dt; // the start of its last base candle, so it closes at the end of the day
+    const d = pre[pre.length - 1];
+    if (d && d.key === key) { // a Sunday session joins Monday
+      if (daily.h[i] > d.h) d.h = daily.h[i];
+      if (daily.l[i] < d.l) d.l = daily.l[i];
+      d.c = daily.c[i];
+      d.tEnd = end;
+    } else pre.push({ key, t, tEnd: end, o: daily.o[i], h: daily.h[i], l: daily.l[i], c: daily.c[i], i0: -1, i1: -1 });
+  }
+  if (!pre.length) return { days: cal.days, weeks: cal.weeks, dOff: 0, wOff: 0 };
+  const preWeeks: Bar[] = [];
+  for (const d of pre) {
+    const key = weekKey(d.key);
+    const w = preWeeks[preWeeks.length - 1];
+    if (w && w.key === key) {
+      if (d.h > w.h) w.h = d.h;
+      if (d.l < w.l) w.l = d.l;
+      w.c = d.c;
+      w.tEnd = d.tEnd;
+    } else preWeeks.push({ ...d, key });
+  }
+  // a week split between the daily candles and the loaded ones becomes one week again (as a copy)
+  const weeks = [...preWeeks];
+  const w0 = cal.weeks[0];
+  let wOff = preWeeks.length;
+  const last = weeks[weeks.length - 1];
+  if (last && last.key === w0.key) {
+    weeks[weeks.length - 1] = { ...w0, t: last.t, o: last.o, h: Math.max(last.h, w0.h), l: Math.min(last.l, w0.l) };
+    wOff--;
+    weeks.push(...cal.weeks.slice(1));
+  } else weeks.push(...cal.weeks);
+  return { days: [...pre, ...cal.days], weeks, dOff: pre.length, wOff };
 }
 
 /** Bigger candles (`step` seconds) from the base ones. The last one only counts once its final base candle is in. */
@@ -142,7 +197,7 @@ export function aggregate(s: Series, cal: Calendar, step: number, baseDt: number
 }
 
 /** The slow, rule-independent work, so several runs can share it. */
-export function prepare(s: Series, cfg: Pick<Config, "dayStart" | "weekendClosed" | "swingWeekly">, partner: Series | null = null): Prepared {
+export function prepare(s: Series, cfg: Pick<Config, "dayStart" | "weekendClosed" | "swingWeekly">, partner: Series | null = null, daily: Series | null = null): Prepared {
   const cal = buildCalendar(s, cfg);
   const bias = weeklyBias(cal.weeks, cfg.swingWeekly);
   const nfpDays = new Set<number>();
@@ -165,7 +220,8 @@ export function prepare(s: Series, cfg: Pick<Config, "dayStart" | "weekendClosed
     structH4: structure(h4.bars, 2), structD: structure(cal.days, 2), structW: structure(cal.weeks, 2),
     levels: levelBook(byTf),
     base, m15: dt >= 900 ? base : aggregate(s, cal, 900, dt),
-    partner: pp
+    partner: pp,
+    hist: buildHistory(cal, daily, cfg, dt)
   };
 }
 
@@ -258,7 +314,7 @@ export function runBacktest(p: Prepared, cfg: Config): RunResult {
       live = {
         asOf: s.t[s.n - 1] + p.dt, dayStart: p.cal.days[di].t, date: p.cal.days[di].key * 86400, weekDate: weekDate(p.cal.weeks[wi].key),
         bias: p.bias.structure[wi], biasGate: cfg.bias === "off" ? null : cfg.bias,
-        swings: m1 ? { weekly: wi >= 1 ? swingsOf(p).weekly[wi - 1] : 0, daily: swingsOf(p).daily[di - 1] } : undefined,
+        swings: m1 ? { weekly: swingsOf(p).weeklyBefore(wi), daily: swingsOf(p).dailyBefore(di) } : undefined,
         setups: passes.flatMap((x) => x.live)
       };
     }

@@ -77,7 +77,8 @@ export function flips(bars: Bar[], tf: Tf, ct: Float64Array, k = SWING): Level[]
 }
 
 /**
- * The first 4-hour candle, starting once the level was known, that reached it. A flip or a breaker
+ * The first candle (a day before the loaded candles, a 4-hour candle after), starting once the level
+ * was known, that reached it. A flip or a breaker
  * forms right where price broke through, so it only counts as touched once price has first moved
  * away from it by half the candle that broke it: the wiggle at the break isn't the retest.
  */
@@ -132,12 +133,15 @@ export function keyBook(p: Prepared): KeyBook {
   let b = cache.get(p);
   if (b) return b;
   const h4 = build4h(p.s);
-  const charts: Record<Tf, Bar[]> = { h4: h4.bars, d1: p.cal.days, w1: p.cal.weeks };
+  // daily and weekly levels on the history, which can reach years back; touches before the loaded
+  // candles are read on the earlier days, then on 4-hour candles
+  const charts: Record<Tf, Bar[]> = { h4: h4.bars, d1: p.hist.days, w1: p.hist.weeks };
+  const touchBars = p.hist.dOff ? [...p.hist.days.slice(0, p.hist.dOff), ...h4.bars] : h4.bars;
   const byTf = {} as Record<Tf, TfData>;
   for (const tf of ["h4", "d1", "w1"] as Tf[]) {
     const bars = charts[tf], ct = closeTimes(bars, p.dt);
     const all = [...findLevels(bars, tf, SWING, 10, p.dt), ...flips(bars, tf, ct)].sort((a, c) => a.knownAt - c.knownAt);
-    touches(all, h4.bars, bars, ct);
+    touches(all, touchBars, bars, ct);
     byTf[tf] = { bars, ct, ...swingsOf(bars), support: all.filter((z) => z.side === 1), resistance: all.filter((z) => z.side === -1) };
   }
   b = { h4, byTf };

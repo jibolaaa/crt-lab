@@ -114,8 +114,13 @@ export function TradeChart({ trade, candles, digits }: { trade: Trade; candles: 
         shapes.push({ kind: "box", i1: at(T, start), i2: iEntry, p1: trade.zone.top, p2: trade.zone.bottom, fill: "rgba(227,176,75,0.13)", stroke: "rgba(227,176,75,0.55)" });
       }
       const m1 = trade.m1;
-      if (m1) {
-        // Model 1: the swing the MSS closed through, and the inducement up to the fill
+      const m1qm = !!m1 && m1.how !== "ob" && !!q;
+      if (m1 && m1qm && q) {
+        // Model 1, QM: the QM line from its swing to the entry, and the breakout level from its swing to the entry
+        shapes.push({ kind: "level", i1: at(T, q.shoulderT), i2: iEntry, p1: q.level, p2: q.level, stroke: gold, dash: [5, 3] });
+        shapes.push({ kind: "level", i1: at(T, m1.idmT), i2: iEntry, p1: q.smsLevel, p2: q.smsLevel, stroke: paper, dash: [4, 3] });
+      } else if (m1) {
+        // Model 1, order block: the swing the MSS closed through, and the inducement up to the fill
         shapes.push({ kind: "level", i1: at(T, m1.mssFrom), i2: at(T, trade.mssT - 1), p1: trade.mssLevel, p2: trade.mssLevel, stroke: paper, dash: [4, 3] });
         shapes.push({ kind: "level", i1: at(T, m1.idmT), i2: iEntry, p1: m1.idm, p2: m1.idm, stroke: gold, dash: [5, 3] });
       } else if (q) {
@@ -130,18 +135,18 @@ export function TradeChart({ trade, candles, digits }: { trade: Trade; candles: 
       series.attachPrimitive(new Shapes(shapes));
 
       const markers: SeriesMarker<Time>[] = [
-        { time: T[at(T, trade.sweepT)] as UTCTimestamp, position: long ? "belowBar" : "aboveBar", shape: long ? "arrowUp" : "arrowDown", color: gold, text: "Sweep" },
+        { time: T[at(T, trade.sweepT)] as UTCTimestamp, position: long ? "belowBar" : "aboveBar", shape: long ? "arrowUp" : "arrowDown", color: gold, text: m1qm ? "Apex" : "Sweep" },
         { time: T[iEntry] as UTCTimestamp, position: long ? "belowBar" : "aboveBar", shape: long ? "arrowUp" : "arrowDown", color: paper, text: "In" }
       ];
-      if (q) markers.push({ time: T[at(T, q.headT)] as UTCTimestamp, position: long ? "belowBar" : "aboveBar", shape: "circle", color: gold, text: "A" });
-      if (m1) markers.push({ time: T[at(T, trade.mssT - 1)] as UTCTimestamp, position: long ? "aboveBar" : "belowBar", shape: "circle", color: paper, text: "MSS" });
+      if (q && !m1) markers.push({ time: T[at(T, q.headT)] as UTCTimestamp, position: long ? "belowBar" : "aboveBar", shape: "circle", color: gold, text: "A" });
+      if (m1) markers.push({ time: T[at(T, trade.mssT - 1)] as UTCTimestamp, position: long ? "aboveBar" : "belowBar", shape: "circle", color: paper, text: m1qm ? "Break" : "MSS" });
       if (trade.partialT) markers.push({ time: T[at(T, trade.partialT)] as UTCTimestamp, position: long ? "aboveBar" : "belowBar", shape: "circle", color: gold, text: "Half" });
       const iExit = at(T, trade.exitT - (trade.reason === "time" || trade.reason === "end" ? 1 : 0));
       markers.push({ time: T[iExit] as UTCTimestamp, position: long ? "aboveBar" : "belowBar", shape: "square", color: trade.r > 0.005 ? up : trade.r < -0.005 ? down : fog, text: "Out" });
       markers.sort((a, b) => (a.time as number) - (b.time as number));
       lc.createSeriesMarkers(series, markers);
 
-      const first = Math.min(at(T, trade.sweepT), q ? at(T, q.shoulderT) : Infinity, m1 ? at(T, m1.mssFrom) : Infinity);
+      const first = Math.min(at(T, trade.sweepT), q ? at(T, q.shoulderT) : Infinity, m1 && !m1qm ? at(T, m1.mssFrom) : Infinity);
       const from = Math.max(0, first - (m1 ? 24 : 12)), to = Math.min(T.length - 1, iExit + 6);
       chart.timeScale().setVisibleLogicalRange({ from, to });
     });

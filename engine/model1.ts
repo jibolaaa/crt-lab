@@ -1,32 +1,35 @@
-// Model 1: the three-candle CRT with a lower-timeframe entry. For a sell (buys are the mirror image):
+// Model 1: the CRT into a key level, with a lower-timeframe entry. For a buy (sells are the mirror image):
 //
-//  1. Candle 1 sets the range (a 4-hour candle, a day or a week). One or more inside candles follow:
-//     none of them takes candle 1's high or its low. When candle 1 is itself inside the candle
-//     before it, that bigger candle is the range.
-//  2. The weekly and daily structure agree: lower highs and lower lows for sells (see `bias`).
-//  3. A later candle takes the range high into a key level that fits the structure (keys.ts). It can
-//     be the candle right after the inside candles, or any candle after it while the candles keep
-//     closing inside the range (`sweepWindow`).
-//  4. On the entry chart (5-minute for 4-hour ranges, 15-minute for daily, 30-minute for weekly),
-//     after the sweep's tip: a close below the last swing low before it (the MSS). The order block
-//     is the last up candle at or before the tip.
-//  5. The first pullback after the MSS leaves a swing high: the inducement. A sell limit waits at
-//     the order block, no lower than the inducement, so it only fills once the inducement is taken.
-//     The entry has to be inside the key level.
-//  6. The stop goes just above the order block (past the tip). Half comes off at the range's 50%
-//     level and the stop moves to the entry; the rest goes to the range low.
+//  1. The range: candle 1 is a 4-hour candle, a day or a week. Candle 2 can take its low straight away
+//     (a 2-candle CRT), or after one or more inside candles that take neither its high nor its low
+//     (a 3-candle CRT, where the bigger candle around the inside ones is the range). `crtKind` picks.
+//  2. The weekly and daily structure agree: higher highs and higher lows for buys (see `bias`).
+//  3. A candle takes the range low into a key level that fits the structure (keys.ts): the candle
+//     right after, or a later one while the candles keep closing inside the range (`sweepWindow`).
+//  4. The entry, on the entry chart (`entryChart`):
+//     - QM (the default): the sweep's lowest low is the Apex. The last swing low before it, above it,
+//       is the QM line, and the highest high between them is the breakout level. Once a candle closes
+//       above the breakout level, a buy limit waits at it (the breakout retest), or the entry is an
+//       engulfing candle back at the QM line (`qmEntry`). The stop goes below the Apex.
+//     - Order block: a close above the last swing high before the sweep's tip (the MSS), the first
+//       pullback (the inducement), then a buy limit at the order block. The stop goes below it.
+//  5. Half comes off at the range's 50% level and the stop moves to the entry; the rest goes to the
+//     range high.
 import { aggregate, weekDate, type Candles, type Prepared } from "./backtest";
 import { inSessions } from "./calendar";
 import { KEY_TFS, keyBook, structureKeyFor, type KeyHit } from "./keys";
 import {
   CONFLUENCES, type Bar, type Checklist, type Config, type CrtTf, type Dir, type EntryChart, type Funnel,
-  type KeyLevelInfo, type LiveSetup, type Trade
+  type KeyLevelInfo, type LiveSetup, type M1Info, type Trade
 } from "./types";
 
 interface Swing { t: number; price: number; i: number }
 
 /** The most inside candles looked back over for one range. */
 export const MAX_INSIDE = 5;
+
+/** How near the QM line an engulfing entry has to start: within this share of the way up to the breakout level. */
+export const QM_ZONE = 0.25;
 
 /**
  * Structure from swings (k candles each side): -1 after lower highs and lower lows, 1 after higher
@@ -56,27 +59,45 @@ export function swingBias(bars: Bar[], k: number): Int8Array {
   return out;
 }
 
-const swingCache = new WeakMap<Prepared, { weekly: Int8Array; daily: Int8Array }>();
-/** The weekly and daily structure from swings, worked out once per prepared prices. */
-export function swingsOf(p: Prepared) {
+export interface Swings {
+  /** On the history's weeks and days (see Prepared.hist). */
+  weekly: Int8Array;
+  daily: Int8Array;
+  /** The structure as of the last finished week before loaded week `w`, and the last finished day before loaded day `d`. */
+  weeklyBefore: (w: number) => number;
+  dailyBefore: (d: number) => number;
+}
+const swingCache = new WeakMap<Prepared, Swings>();
+/** The weekly and daily structure from swings, read on the history, worked out once per prepared prices. */
+export function swingsOf(p: Prepared): Swings {
   let s = swingCache.get(p);
-  if (!s) { s = { weekly: swingBias(p.cal.weeks, 2), daily: swingBias(p.cal.days, 2) }; swingCache.set(p, s); }
+  if (!s) {
+    const { days, weeks, dOff, wOff } = p.hist;
+    const weekly = swingBias(weeks, 2), daily = swingBias(days, 2);
+    s = {
+      weekly, daily,
+      weeklyBefore: (w) => (wOff + w - 1 >= 0 ? weekly[wOff + w - 1] : 0),
+      dailyBefore: (d) => (dOff + d - 1 >= 0 ? daily[dOff + d - 1] : 0)
+    };
+    swingCache.set(p, s);
+  }
   return s;
 }
 
 /** Whether the structure allows trading this way, given the weekly and daily structure. */
 export function structureAllows(mode: Config["bias"], dir: Dir, weekly: number, daily: number) {
   if (mode === "weeklyDaily") return weekly === dir && daily === dir;
+  if (mode === "weeklyLead") return weekly === dir && daily !== -dir;
   if (mode === "weeklySwings") return weekly === dir;
   if (mode === "dailySwings") return daily === dir;
   return true;
 }
 
-/** Seconds per candle on the entry chart for each range. */
-export function entrySeconds(chart: EntryChart, tf: CrtTf) {
-  if (chart === "m5") return 300;
-  if (chart === "m15") return 900;
-  if (chart === "m30") return 1800;
+const STEP: Record<Exclude<EntryChart, "auto">, number> = { m5: 300, m15: 900, m30: 1800, h1: 3600, h4: 14400 };
+/** Seconds per candle on the entry chart for a range size and entry. */
+export function entrySeconds(chart: EntryChart, tf: CrtTf, entry: Config["m1Entry"] = "qm") {
+  if (chart !== "auto") return STEP[chart];
+  if (entry === "qm") return tf === "h4" ? 900 : tf === "day" ? 3600 : 14400;
   return tf === "h4" ? 300 : tf === "day" ? 900 : 1800;
 }
 
@@ -92,11 +113,18 @@ function entryCandles(p: Prepared, step: number): Candles {
   return c;
 }
 
+interface Qm {
+  line: number; // the QM line: the last swing low before the Apex (high for sells)
+  lineT: number;
+  breakout: number; // the highest high between the QM line and the Apex (lowest low for sells)
+  breakoutT: number;
+}
+
 interface Setup {
   dir: Dir;
   p1: number; // the range candle's index among the periods
-  p2: number; // the candle after the inside candles: the first one that can sweep
-  inside: number; // inside candles between them
+  p2: number; // the first candle that can sweep it
+  inside: number; // inside candles between them (0 for a 2-candle CRT)
   blocked: boolean; // the structure ruled this direction out (kept for the live view)
   rangeHigh: number;
   rangeLow: number;
@@ -105,16 +133,21 @@ interface Setup {
   bias: number; // the weekly structure from swings when it started
   swept: boolean;
   sweepCounted: boolean;
-  tip: number;
+  tip: number; // the sweep's furthest point: the Apex
   tipI: number;
   tipT: number;
   key: KeyHit | null;
   keyChecked: boolean;
   keyCounted: boolean;
+  // order block entry
   mss: { level: number; t: number; i: number; from: number } | null;
   ob: { top: number; bottom: number; t: number } | null;
   idm: { price: number; t: number; knownI: number } | null;
   limit: number;
+  // QM entries
+  qm: Qm | null;
+  qmLooked: boolean; // looked for the QM shape for this Apex
+  broke: { t: number; i: number } | null; // the close past the breakout level
   touched: boolean;
   done: boolean;
   why: string | null;
@@ -137,15 +170,16 @@ const keyInfo = (k: KeyHit | null): KeyLevelInfo | null =>
   k ? { tf: k.level.tf, kind: k.level.kind, top: k.level.top, bottom: k.level.bottom, t: k.level.t, fit: k.fit } : null;
 
 /**
- * One pass over the entry chart for one size of range. The funnel reuses the shared counters:
- * `days` ranges with inside candles, `sweeps`, `keyLevels`, `closedInside` the MSS, `zones` the
- * inducement and limit, `touches` price reaching the limit.
+ * One pass over the entry chart for one size of range. The funnel reuses the shared counters: `days`
+ * ranges looked at, `sweeps`, `keyLevels`, `closedInside` the break (QM) or the MSS (order block),
+ * `zones` the order set, `touches` price reaching it.
  */
 export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map<number, number>) {
   const { cal, nfpDays } = p;
   const kb = keyBook(p);
   const sw = swingsOf(p);
-  const E = entryCandles(p, entrySeconds(cfg.entryChart, tf));
+  const qmEntry = cfg.m1Entry === "qm";
+  const E = entryCandles(p, entrySeconds(cfg.entryChart, tf, cfg.m1Entry));
   const dt = E.dt, sp = cfg.spread, k = cfg.swing15;
   const periods: Bar[] = tf === "week" ? cal.weeks : tf === "h4" ? kb.h4.bars : cal.days;
   const periodOf = (i: number) => (tf === "week" ? cal.weekOfDay[E.day[i]] : tf === "h4" ? kb.h4.of[E.ib[i]] : E.day[i]);
@@ -189,12 +223,14 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
     const tol = 0.1 * (st.rangeHigh - st.rangeLow);
     return price >= z.bottom - tol && price <= z.top + tol;
   };
+  /** Where the stop goes: past the Apex (QM) or past the order block. */
   const stopOf = (st: Setup) => {
-    const ob = st.ob!;
-    return st.dir === 1 ? ob.bottom - cfg.stopBuffer : ob.top + sp + cfg.stopBuffer;
+    const long = st.dir === 1;
+    const anchor = qmEntry ? st.tip : long ? st.ob!.bottom : st.ob!.top;
+    return long ? anchor - cfg.stopBuffer : anchor + sp + cfg.stopBuffer;
   };
 
-  const enter = (st: Setup, i: number, entry: number): Open | null => {
+  const enter = (st: Setup, i: number, entry: number, how: M1Info["how"]): Open | null => {
     const long = st.dir === 1, t = E.t[i], now = t + dt, pi = periodOf(i);
     st.done = true;
     const dk = cal.days[E.day[i]].key;
@@ -210,15 +246,21 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
     if (plannedR > cfg.maxR) { target = long ? entry + cfg.maxR * risk : entry - cfg.maxR * risk; plannedR = cfg.maxR; }
     if (plannedR < cfg.minR) { funnel.skippedLowR++; st.why = "lowR"; st.skipR = plannedR; return null; }
     const partial = cfg.partialAtTp1 && (long ? st.mid > entry && st.mid < target : st.mid < entry && st.mid > target);
-    const idm = st.idm!, mss = st.mss!, ob = st.ob!;
+    const q = st.qm, b = st.broke, mss = st.mss, ob = st.ob, idm = st.idm;
     const trade: Trade = {
       id: trades.length + 1, dir: st.dir, tf, model: "model1",
       rangeDayT: periods[st.p1].t, sweepDayT: periods[st.p2].t,
       rangeHigh: st.rangeHigh, rangeLow: st.rangeLow, mid: st.mid, bodyEdge: st.bodyEdge,
       sweepT: st.tipT, sweepPrice: st.tip, bias: st.bias,
-      zone: { top: ob.top, bottom: ob.bottom, t: mss.t, ob: { ...ob } }, touchT: null,
-      mssLevel: mss.level, mssT: mss.t, qm: null, retest: null,
-      m1: { inside: st.inside, entryDt: dt, mssFrom: mss.from, idm: idm.price, idmT: idm.t, limit: st.limit, after: pi - st.p2 },
+      zone: ob && mss ? { top: ob.top, bottom: ob.bottom, t: mss.t, ob: { ...ob } } : null, touchT: null,
+      mssLevel: q ? q.breakout : mss!.level, mssT: q ? b!.t : mss!.t,
+      qm: q ? { level: q.line, shoulderT: q.lineT, head: st.tip, headT: st.tipT, smsLevel: q.breakout, smsT: b!.t } : null,
+      retest: null,
+      m1: {
+        inside: st.inside, entryDt: dt, mssFrom: q ? q.breakoutT : mss!.from,
+        idm: q ? q.breakout : idm!.price, idmT: q ? q.breakoutT : idm!.t,
+        limit: q ? (how === "retest" ? q.breakout : entry) : st.limit, after: pi - st.p2, how
+      },
       entryT: now, entry, stop, tp1: st.mid, tp2: target, partial, risk, plannedR,
       sameDay: pi === st.p2, entryCandle: pi - st.p2 + 2,
       keyLevel: keyInfo(st.key),
@@ -235,12 +277,22 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
     return op;
   };
 
+  const newSetup = (dir: Dir, m: number, pi: number, R: Bar, blocked: boolean, weekly: number): Setup => ({
+    dir, p1: m, p2: pi, inside: pi - 1 - m, blocked, rangeHigh: R.h, rangeLow: R.l, mid: (R.h + R.l) / 2,
+    bodyEdge: dir === 1 ? Math.min(R.o, R.c) : Math.max(R.o, R.c), bias: weekly,
+    swept: false, sweepCounted: false, tip: 0, tipI: 0, tipT: 0,
+    key: null, keyChecked: false, keyCounted: false,
+    mss: null, ob: null, idm: null, limit: NaN,
+    qm: null, qmLooked: false, broke: null, touched: false,
+    done: blocked, why: blocked ? "bias" : null, skipR: null, trade: null
+  });
+
   for (let i = 0; i < E.n; i++) {
     const t = E.t[i], o = E.o[i], hi = E.h[i], lo = E.l[i], c = E.c[i];
     const now = t + dt;
     const pi = periodOf(i);
 
-    // ---- a new range candle period ----
+    // ---- a new range-candle period ----
     if (pi !== curP) {
       if (curP >= 0) {
         const P = periods[curP];
@@ -256,31 +308,31 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
       recent = recent.filter((st) => st.p2 >= pi - cfg.sweepWindow - 1);
       curP = pi;
 
-      // the candle before this one is inside an earlier candle (or several are): a range to sweep
+      // the ranges this candle can sweep: the candle before it (2-candle CRT), and the bigger candle
+      // around one or more inside candles (3-candle CRT)
       const near = (a: number, b: number) => periods[b].t - periods[a].tEnd < maxGap;
       const contains = (a: number, b: number) => periods[b].h <= periods[a].h && periods[b].l >= periods[a].l;
-      if (pi >= 2 && near(pi - 1, pi) && near(pi - 2, pi - 1) && contains(pi - 2, pi - 1)) {
+      const ranges: number[] = [];
+      if (cfg.crtKind !== "three" && pi >= 1 && near(pi - 1, pi)) ranges.push(pi - 1);
+      if (cfg.crtKind !== "two" && pi >= 2 && near(pi - 1, pi) && near(pi - 2, pi - 1) && contains(pi - 2, pi - 1)) {
         let m = pi - 2;
         while (m >= 1 && pi - m <= MAX_INSIDE && near(m - 1, m) && contains(m - 1, m)) m--;
-        funnel.days++;
-        const R = periods[m], d0 = dayOfPeriod(pi);
-        const daily = d0 >= 1 ? sw.daily[d0 - 1] : 0; // the last finished day
-        const w0 = cal.weekOfDay[d0];
-        const weekly = w0 >= 1 ? sw.weekly[w0 - 1] : 0; // the last finished week
-        for (const dir of [1, -1] as Dir[]) {
-          if (!side(dir)) continue;
-          const blocked = !structureAllows(cfg.bias, dir, weekly, daily);
-          if (blocked) funnel.biasBlocked++;
-          const st: Setup = {
-            dir, p1: m, p2: pi, inside: pi - 1 - m, blocked, rangeHigh: R.h, rangeLow: R.l, mid: (R.h + R.l) / 2,
-            bodyEdge: dir === 1 ? Math.min(R.o, R.c) : Math.max(R.o, R.c), bias: weekly,
-            swept: false, sweepCounted: false, tip: 0, tipI: 0, tipT: 0,
-            key: null, keyChecked: false, keyCounted: false,
-            mss: null, ob: null, idm: null, limit: NaN, touched: false,
-            done: blocked, why: blocked ? "bias" : null, skipR: null, trade: null
-          };
-          recent.push(st);
-          if (!blocked) setups.push(st);
+        ranges.push(m);
+      }
+      if (ranges.length) {
+        const d0 = dayOfPeriod(pi);
+        const daily = sw.dailyBefore(d0); // the last finished day
+        const weekly = sw.weeklyBefore(cal.weekOfDay[d0]); // the last finished week
+        for (const m of ranges) {
+          funnel.days++;
+          for (const dir of [1, -1] as Dir[]) {
+            if (!side(dir)) continue;
+            const blocked = !structureAllows(cfg.bias, dir, weekly, daily);
+            if (blocked) funnel.biasBlocked++;
+            const st = newSetup(dir, m, pi, periods[m], blocked, weekly);
+            recent.push(st);
+            if (!blocked) setups.push(st);
+          }
         }
       }
     }
@@ -323,12 +375,12 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
       });
     }
 
-    // ---- setups: sweep, key level, MSS, inducement, then the limit ----
+    // ---- setups: sweep, key level, then the entry ----
     for (const st of setups) {
       if (st.done) continue;
       const long = st.dir === 1;
 
-      // the sweep, and deeper sweeps: a new tip starts the entry over
+      // the sweep, and deeper sweeps: a new tip (Apex) starts the entry over
       const through = long ? lo < st.rangeLow : hi > st.rangeHigh;
       if (through && (!st.swept || (long ? lo < st.tip : hi > st.tip))) {
         st.swept = true;
@@ -341,6 +393,9 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
         st.ob = null;
         st.idm = null;
         st.limit = NaN;
+        st.qm = null;
+        st.qmLooked = false;
+        st.broke = null;
         if (!st.sweepCounted) { st.sweepCounted = true; funnel.sweeps++; }
       }
       if (!st.swept) continue;
@@ -356,9 +411,63 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
 
       // the move played out before we were in
       if (long ? hi >= st.rangeHigh : lo <= st.rangeLow) { st.done = true; st.why = "targetHit"; continue; }
-      if (cfg.midCancels && st.mss && (long ? hi >= st.mid : lo <= st.mid)) { st.done = true; st.why = "mid"; continue; }
+      if (cfg.midCancels && (st.mss || st.broke) && (long ? hi >= st.mid : lo <= st.mid)) { st.done = true; st.why = "mid"; continue; }
 
-      // the MSS: a close past the last swing before the tip
+      if (qmEntry) {
+        // ---- QM: the QM line, the breakout level, the break, then the retest or an engulfing candle ----
+        if (!st.qm) {
+          if (i <= st.tipI || st.qmLooked) continue;
+          st.qmLooked = true; // every swing before the Apex is confirmed by now
+          const list = long ? lows : highs;
+          const from = periods[st.p1].t;
+          let sh: Swing | null = null;
+          for (let x = list.length - 1; x >= 0; x--) {
+            const s = list[x];
+            if (s.t >= st.tipT) continue;
+            if (s.t < from) break;
+            if (long ? s.price > st.tip : s.price < st.tip) { sh = s; break; }
+          }
+          if (!sh) continue; // no QM shape for this Apex: wait for a deeper sweep
+          let lvl = long ? -Infinity : Infinity, at = -1;
+          for (let x = sh.i + 1; x < st.tipI; x++) if (long ? E.h[x] > lvl : E.l[x] < lvl) { lvl = long ? E.h[x] : E.l[x]; at = x; }
+          if (at < 0) continue;
+          st.qm = { line: sh.price, lineT: sh.t, breakout: lvl, breakoutT: E.t[at] };
+        }
+        const q = st.qm;
+        if (!st.broke) {
+          if (long ? c > q.breakout : c < q.breakout) {
+            st.broke = { t: now, i };
+            funnel.closedInside++;
+            funnel.zones++;
+          }
+          continue;
+        }
+        if (i <= st.broke.i) continue;
+        let how: M1Info["how"] | null = null, entry = NaN;
+        // the breakout retest: a limit at the breakout level fills at its price, or at the open if price jumped past it
+        if (cfg.qmEntry !== "engulf" && (long ? lo + sp <= q.breakout : hi >= q.breakout)) {
+          how = "retest";
+          entry = long ? Math.min(q.breakout, o + sp) : Math.max(q.breakout, o);
+        } else if (cfg.qmEntry !== "retest") {
+          // an engulfing candle back at the QM line: it or the candle before reached the QM zone
+          const zone = long ? q.line + QM_ZONE * (q.breakout - q.line) : q.line - QM_ZONE * (q.line - q.breakout);
+          const pc = E.c[i - 1], po = E.o[i - 1];
+          const reached = long ? Math.min(lo, E.l[i - 1]) <= zone : Math.max(hi, E.h[i - 1]) >= zone;
+          const engulf = long ? c > o && pc < po && c >= po : c < o && pc > po && c <= po;
+          if (reached && engulf) { how = "engulf"; entry = long ? c + sp : c; }
+        }
+        if (!how) continue;
+        if (!st.touched) { st.touched = true; funnel.touches++; }
+        const op = enter(st, i, entry, how);
+        // worst case: the candle that filled the limit also reached the stop
+        if (op && how === "retest" && (long ? lo <= op.stop : hi + sp >= op.stop)) {
+          closeTrade(op, now, op.stop, "stop");
+          open = open.filter((x) => x !== op);
+        }
+        continue;
+      }
+
+      // ---- order block: the MSS, the inducement, then the limit ----
       if (!st.mss) {
         if (i <= st.tipI) continue;
         const list = long ? highs : lows;
@@ -375,8 +484,6 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
         funnel.closedInside++;
         continue;
       }
-
-      // the inducement: the first swing the other way after the MSS (a swing high for sells)
       if (!st.idm) {
         const list = long ? lows : highs;
         let first: Swing | null = null;
@@ -389,14 +496,11 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
         funnel.zones++;
         continue;
       }
-
-      // the limit
       if (i <= st.idm.knownI) continue;
       if (!(long ? lo + sp <= st.limit : hi >= st.limit)) continue;
       if (!st.touched) { st.touched = true; funnel.touches++; }
       const entry = long ? Math.min(st.limit, o + sp) : Math.max(st.limit, o);
-      const op = enter(st, i, entry);
-      // worst case: the candle that filled the limit also reached the stop
+      const op = enter(st, i, entry, "ob");
       if (op && (long ? lo <= op.stop : hi + sp >= op.stop)) {
         closeTrade(op, now, op.stop, "stop");
         open = open.filter((x) => x !== op);
@@ -416,21 +520,33 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
       sweepPrice: st.swept ? st.tip : null, keyLevel: keyInfo(st.key),
       zone: st.ob ? { top: st.ob.top, bottom: st.ob.bottom, t: st.mss?.t ?? st.ob.t, ob: { ...st.ob } } : null,
       level: null, order: null, pending: null, call: null, skipR: st.skipR, trade: st.trade,
-      m1: { inside: st.inside, entryDt: dt, mss: st.mss?.level ?? null, ob: st.ob ? { top: st.ob.top, bottom: st.ob.bottom } : null, idm: st.idm?.price ?? null }
+      m1: {
+        inside: st.inside, entryDt: dt, mss: st.mss?.level ?? null, ob: st.ob ? { top: st.ob.top, bottom: st.ob.bottom } : null, idm: st.idm?.price ?? null,
+        qm: st.qm ? { line: st.qm.line, breakout: st.qm.breakout, apex: st.tip, broke: !!st.broke } : null
+      }
     };
     if (st.blocked) return { ...lv, stage: "blocked" };
     if (st.done) return { ...lv, stage: st.trade ? "entered" : "ended" };
     if (!st.swept) return lv;
     if (cfg.requireKeyLevel && !st.key) return { ...lv, stage: "noKey" };
+    const stop = stopOf, target = long ? st.rangeHigh : st.rangeLow;
+    const orderAt = (level: number) => {
+      const s = qmEntry || st.ob ? stop(st) : NaN, risk = long ? level - s : s - level;
+      return { level, stop: s, target, r: risk > 0 ? (long ? target - level : level - target) / risk : 0 };
+    };
+    if (qmEntry) {
+      if (!st.qm) return { ...lv, stage: "key" };
+      if (!st.broke) return { ...lv, stage: "key", level: st.qm.breakout };
+      // a limit at the breakout level, or an engulfing candle at the QM line
+      return { ...lv, stage: "limit", order: orderAt(cfg.qmEntry === "engulf" ? st.qm.line : st.qm.breakout) };
+    }
     if (!st.mss) {
-      // the close that would be the MSS
       const list = long ? highs : lows;
       for (let x = list.length - 1; x >= 0; x--) if (list[x].t < st.tipT) { lv.level = list[x].price; break; }
       return { ...lv, stage: "key" };
     }
     if (!st.idm) return { ...lv, stage: "mss", level: st.mss.level };
-    const stop = stopOf(st), target = long ? st.rangeHigh : st.rangeLow, risk = long ? st.limit - stop : stop - st.limit;
-    return { ...lv, stage: "limit", order: { level: st.limit, stop, target, r: risk > 0 ? (long ? target - st.limit : st.limit - target) / risk : 0 } };
+    return { ...lv, stage: "limit", order: orderAt(st.limit) };
   };
   const live: LiveSetup[] = [];
   if (E.n && curP >= 0) {

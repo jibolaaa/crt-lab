@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "CRT Lab",
-  description: "Daily and weekly CRT setups on live prices, a call with your checklist percent when there is an entry, and every trade the rules would have taken."
+  description: "CRT setups on live prices, the order to place when there is an entry, and every trade the rules would have taken."
 };
 
 export const viewport: Viewport = {

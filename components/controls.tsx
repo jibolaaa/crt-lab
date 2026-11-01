@@ -305,12 +305,17 @@ function Model1Rules(p: Props) {
         legend="Range candles" values={c.crt}
         options={[["h4", "4-hour"], ["day", "Daily"], ["week", "Weekly"]] as [CrtTf, string][]}
         onChange={(v, on) => u({ crt: toggleIn(c.crt, v, on) })}
-        hint="Candle 1, then one or more inside candles that take neither its high nor its low. Then a candle that takes one side and turns back."
+        hint="Candle 1 sets the range. Then a candle takes one side into a key level and turns back."
+      />
+      <Choice
+        legend="CRT" name="crtkind" value={c.crtKind} onChange={(v) => u({ crtKind: v })}
+        options={[["both", "2 or 3 candles"], ["two", "2 candles"], ["three", "3 candles"]]}
+        hint="2 candles: candle 2 takes candle 1's high or low straight away. 3 candles: one or more inside candles first, taking neither."
       />
       <Choice
         legend="Structure" name="m1bias" value={c.bias} onChange={(v) => u({ bias: v })}
-        options={[["weeklyDaily", "Weekly and daily agree"], ["weeklySwings", "Weekly only"], ["dailySwings", "Daily only"], ["off", "Off"]]}
-        hint="Sells need lower highs and lower lows, buys higher highs and higher lows, from finished weeks and days. A close past the last swing the other way makes it mixed: no trade."
+        options={[["dailySwings", "Daily only"], ["weeklyLead", "Weekly leads"], ["weeklyDaily", "Weekly and daily agree"], ["weeklySwings", "Weekly only"], ["off", "Off"]]}
+        hint="Sells need lower highs and lower lows, buys higher highs and higher lows, from finished weeks and days, read on years of Deriv's daily candles. Weekly leads: the weekly agrees and the daily isn't the other way (mixed is fine). A close past the last swing the other way makes a chart mixed. Daily only had the best win rate on 8 years of EUR/USD."
       />
       <Choice
         legend="Trade direction" name="side" value={c.side} onChange={(v) => u({ side: v })}
@@ -341,11 +346,13 @@ function Model1Rules(p: Props) {
         onChange={(v, on) => u({ keyLevelKinds: toggleIn(c.keyLevelKinds, v, on) })}
         hint="A level stops counting once a candle of its own chart closes through it."
       />
-      <Toggle
-        label="The entry inside the key level"
-        hint="The order at the order block has to sit in the key level, give or take a tenth of the range."
-        checked={c.keyInside} onChange={(v) => u({ keyInside: v })}
-      />
+      {c.m1Entry === "ob" && (
+        <Toggle
+          label="The entry inside the key level"
+          hint="The order at the order block has to sit in the key level, give or take a tenth of the range."
+          checked={c.keyInside} onChange={(v) => u({ keyInside: v })}
+        />
+      )}
       <div className="numrow">
         <NumberField label="Candles after the sweep candle" unit="candles" value={c.sweepWindow} min={0} max={10} onChange={(v) => u({ sweepWindow: Math.max(0, Math.round(v)) })} />
       </div>
@@ -354,9 +361,17 @@ function Model1Rules(p: Props) {
       <hr className="divider" />
       <h3 className="sub">The entry</h3>
       <Choice
+        legend="Entry" name="m1entry" value={c.m1Entry === "ob" ? "ob" : c.qmEntry}
+        onChange={(v) => u(v === "ob" ? { m1Entry: "ob" } : { m1Entry: "qm", qmEntry: v })}
+        options={[["both", "Either, whichever comes first"], ["retest", "Breakout retest"], ["engulf", "Engulfing at the QM line"], ["ob", "Order block after the MSS"]]}
+        hint="For a buy: the sweep's low is the Apex, the low before it is the QM line, and the high between them is the breakout level. Once a candle closes back above the breakout level: a limit at it (the retest), or an engulfing candle back at the QM line. Order block: the MSS, the inducement, then a limit at the order block."
+      />
+      <Choice
         legend="Entry chart" name="echart" value={c.entryChart} onChange={(v: EntryChart) => u({ entryChart: v })}
-        options={[["auto", "Auto"], ["m5", "5-minute"], ["m15", "15-minute"], ["m30", "30-minute"]]}
-        hint="Auto: 5-minute for 4-hour ranges, 15-minute for daily, 30-minute for weekly. After the sweep: a close past the last swing (the MSS), the first pullback (the inducement), then a limit at the order block. The built-in EUR/USD only has 15-minute candles."
+        options={[["auto", "Auto"], ["m5", "5-minute"], ["m15", "15-minute"], ["m30", "30-minute"], ["h1", "1-hour"]]}
+        hint={c.m1Entry === "ob"
+          ? "Auto: 5-minute for 4-hour ranges, 15-minute for daily, 30-minute for weekly. The built-in EUR/USD only has 15-minute candles."
+          : "Auto: 15-minute for 4-hour ranges, 1-hour for daily, 4-hour for weekly."}
       />
       <Choice
         legend="Swing size" name="swing" value={String(c.swing15)} onChange={(v) => u({ swing15: Number(v) })}
@@ -370,11 +385,15 @@ function Model1Rules(p: Props) {
 
       <hr className="divider" />
       <h3 className="sub">Stop and target</h3>
-      <Choice
-        legend="Stop" name="obstop" value={c.obStop} onChange={(v) => u({ obStop: v })}
-        options={[["tip", "Past the sweep's tip"], ["candle", "Just past the order block candle"]]}
-        hint="The order block is the last up candle at the top (down candle at the bottom for buys). Its range usually reaches the tip."
-      />
+      {c.m1Entry === "ob" ? (
+        <Choice
+          legend="Stop" name="obstop" value={c.obStop} onChange={(v) => u({ obStop: v })}
+          options={[["tip", "Past the sweep's tip"], ["candle", "Just past the order block candle"]]}
+          hint="The order block is the last up candle at the top (down candle at the bottom for buys). Its range usually reaches the tip."
+        />
+      ) : (
+        <span className="hint">The stop goes past the Apex, the sweep&apos;s furthest point.</span>
+      )}
       {p.scope !== "all" ? (
         <>
           <div className="numrow">

@@ -11,13 +11,16 @@ import { verdict } from "../lib/verdict";
 const tone = (x: number, eps = 0.05) => (x > eps ? "pos" : x < -eps ? "neg" : "");
 
 // ---------- the verdict and equity curve ----------
-export function Verdict({ result, data, market, failed, money, moneyCfg, model1 = false }: {
+export function Verdict({ result, data, market, failed, money, moneyCfg, model1 = false, picker = null }: {
   result: RunResult | null; data: DataInfo | null; market: Market; failed: boolean; money: MoneyResult | null; moneyCfg: MoneyCfg; model1?: boolean;
+  /** The "From" switch, when there's more than a month of prices. */
+  picker?: React.ReactNode;
 }) {
   const v = result ? verdict(result, model1) : null;
   return (
     <section className="sec-verdict" aria-labelledby="verdict-h" aria-live="polite">
       <h2 className="sec" id="verdict-h">How your rules did{result ? ` on ${fmtSpan(result.from, result.to)} of ${market.name}` : ""}</h2>
+      {result && picker}
       {!v ? (
         <p className="verdict-line verdict-empty">{failed ? "No prices to test yet." : data ? "Running your rules" : `Getting ${market.name} ready`}</p>
       ) : (
@@ -285,7 +288,7 @@ function FunnelM1({ result, cfg }: { result: RunResult; cfg: Config }) {
   const f = result.funnel;
   const max = Math.max(1, f.days);
   const items: { label: string; n: number; side?: string }[] = [
-    { label: "Ranges with an inside candle", n: f.days },
+    { label: cfg.crtKind === "three" ? "Ranges with an inside candle" : cfg.crtKind === "two" ? "Candles looked at as candle 1" : "Ranges looked at (2-candle and 3-candle)", n: f.days },
     {
       label: cfg.bias === "off" ? "A candle took the range's high or low" : "A candle took the range's high or low, with the structure",
       n: f.sweeps,
@@ -293,9 +296,14 @@ function FunnelM1({ result, cfg }: { result: RunResult; cfg: Config }) {
     }
   ];
   if (cfg.requireKeyLevel) items.push({ label: cfg.keyFit ? "The sweep reached a key level that fits the structure" : "The sweep reached a fresh key level", n: f.keyLevels });
-  items.push({ label: "An MSS on the entry chart", n: f.closedInside, side: "A new tip starts the entry over, so one sweep can have more than one MSS." });
-  items.push({ label: "The first pullback left an inducement: limit set at the order block", n: f.zones });
-  items.push({ label: "Price took the inducement and reached the limit", n: f.touches });
+  if (cfg.m1Entry === "qm") {
+    items.push({ label: "A QM, and a close past the breakout level", n: f.closedInside, side: "A deeper sweep starts the QM over, so one range can count more than once." });
+    items.push({ label: cfg.qmEntry === "engulf" ? "An engulfing candle back at the QM line" : cfg.qmEntry === "retest" ? "Price came back to the breakout level" : "The breakout retest, or an engulfing candle at the QM line", n: f.touches });
+  } else {
+    items.push({ label: "An MSS on the entry chart", n: f.closedInside, side: "A new tip starts the entry over, so one sweep can have more than one MSS." });
+    items.push({ label: "The first pullback left an inducement: limit set at the order block", n: f.zones });
+    items.push({ label: "Price took the inducement and reached the limit", n: f.touches });
+  }
   const skipped = [
     f.skippedNews ? `${fmtInt(f.skippedNews)} on jobs report days` : "",
     f.skippedSession ? `${fmtInt(f.skippedSession)} outside your entry times` : "",
@@ -406,15 +414,20 @@ export function Grades({ result }: { result: RunResult | null }) {
   );
 }
 
-/** Model 1 has no checklist: how each range size did instead. */
+/** Model 1 has no checklist: how each range size, and each kind of CRT, did instead. */
 function BySize({ trades }: { trades: Trade[] }) {
-  const rows = ([["4-hour ranges", "h4"], ["Daily ranges", "day"], ["Weekly ranges", "week"]] as [string, Trade["tf"]][])
-    .map(([name, tf]) => [name, trades.filter((t) => t.tf === tf)] as [string, Trade[]])
+  const rows = ([
+    ["4-hour ranges", (t: Trade) => t.tf === "h4"], ["Daily ranges", (t: Trade) => t.tf === "day"], ["Weekly ranges", (t: Trade) => t.tf === "week"],
+    ["2-candle CRTs", (t: Trade) => !t.m1?.inside], ["3-candle CRTs (inside candle)", (t: Trade) => !!t.m1?.inside],
+    ["Breakout retest", (t: Trade) => t.m1?.how === "retest"], ["Engulfing at the QM line", (t: Trade) => t.m1?.how === "engulf"], ["Order block", (t: Trade) => t.m1?.how === "ob"]
+  ] as [string, (t: Trade) => boolean][])
+    .map(([name, f]) => [name, trades.filter(f)] as [string, Trade[]])
     .filter(([, list]) => list.length > 0);
   const cell = (list: Trade[]) => <span className={tone(sum(list) / list.length, 0.005)}>{fmtR(sum(list) / list.length, 2)}</span>;
   return (
     <section className="sec-grades" aria-labelledby="grades-h">
-      <h2 className="sec" id="grades-h">Which range size did better?</h2>
+      <h2 className="sec" id="grades-h">What did better?</h2>
+      <p className="sec-note">The same trades split by range size, by 2-candle or 3-candle CRT, and by entry.</p>
       <div className="table-wrap">
         <table className="grid">
           <thead><tr><th scope="col">Range</th><th scope="col">Trades</th><th scope="col">Won</th><th scope="col">Average</th><th scope="col">Total</th></tr></thead>
