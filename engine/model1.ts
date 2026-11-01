@@ -3,14 +3,15 @@
 //  1. The range: candle 1 is a 4-hour candle, a day or a week. Candle 2 can take its low straight away
 //     (a 2-candle CRT), or after one or more inside candles that take neither its high nor its low
 //     (a 3-candle CRT, where the bigger candle around the inside ones is the range). `crtKind` picks.
-//  2. The weekly and daily structure agree: higher highs and higher lows for buys (see `bias`).
+//  2. The structure allows buys: by default the daily structure isn't bearish (see `bias`).
 //  3. A candle takes the range low into a key level that fits the structure (keys.ts): the candle
 //     right after, or a later one while the candles keep closing inside the range (`sweepWindow`).
 //  4. The entry, on the entry chart (`entryChart`):
 //     - QM (the default): the sweep's lowest low is the Apex. The last swing low before it, above it,
 //       is the QM line, and the highest high between them is the breakout level. Once a candle closes
-//       above the breakout level, a buy limit waits at it (the breakout retest), or the entry is an
-//       engulfing candle back at the QM line (`qmEntry`). The stop goes below the Apex.
+//       above the breakout level, a buy limit waits at the QM line, or the entry is an engulfing candle
+//       near it, whichever comes first. A limit at the breakout level (the retest) is the other choice
+//       (`qmEntry`). The stop goes below the Apex.
 //     - Order block: a close above the last swing high before the sweep's tip (the MSS), the first
 //       pullback (the inducement), then a buy limit at the order block. The stop goes below it.
 //  5. Half comes off at the range's 50% level and the stop moves to the entry; the rest goes to the
@@ -90,6 +91,7 @@ export function structureAllows(mode: Config["bias"], dir: Dir, weekly: number, 
   if (mode === "weeklyLead") return weekly === dir && daily !== -dir;
   if (mode === "weeklySwings") return weekly === dir;
   if (mode === "dailySwings") return daily === dir;
+  if (mode === "dailyNotAgainst") return daily !== -dir;
   return true;
 }
 
@@ -259,7 +261,7 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
       m1: {
         inside: st.inside, entryDt: dt, mssFrom: q ? q.breakoutT : mss!.from,
         idm: q ? q.breakout : idm!.price, idmT: q ? q.breakoutT : idm!.t,
-        limit: q ? (how === "retest" ? q.breakout : entry) : st.limit, after: pi - st.p2, how
+        limit: q ? (how === "retest" ? q.breakout : how === "line" ? q.line : entry) : st.limit, after: pi - st.p2, how
       },
       entryT: now, entry, stop, tp1: st.mid, tp2: target, partial, risk, plannedR,
       sameDay: pi === st.p2, entryCandle: pi - st.p2 + 2,
@@ -444,11 +446,17 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
         }
         if (i <= st.broke.i) continue;
         let how: M1Info["how"] | null = null, entry = NaN;
-        // the breakout retest: a limit at the breakout level fills at its price, or at the open if price jumped past it
-        if (cfg.qmEntry !== "engulf" && (long ? lo + sp <= q.breakout : hi >= q.breakout)) {
-          how = "retest";
-          entry = long ? Math.min(q.breakout, o + sp) : Math.max(q.breakout, o);
-        } else if (cfg.qmEntry !== "retest") {
+        const mode = cfg.qmEntry;
+        /** A limit at `level` fills at its price, or at the open if price jumped past it. */
+        const limitAt = (level: number) => (long ? lo + sp <= level : hi >= level) ? (long ? Math.min(level, o + sp) : Math.max(level, o)) : NaN;
+        if (mode === "line" || mode === "lineEngulf") {
+          entry = limitAt(q.line);
+          if (!Number.isNaN(entry)) how = "line";
+        } else if (mode === "both" || mode === "retest") {
+          entry = limitAt(q.breakout);
+          if (!Number.isNaN(entry)) how = "retest";
+        }
+        if (!how && (mode === "lineEngulf" || mode === "engulf" || mode === "both")) {
           // an engulfing candle back at the QM line: it or the candle before reached the QM zone
           const zone = long ? q.line + QM_ZONE * (q.breakout - q.line) : q.line - QM_ZONE * (q.line - q.breakout);
           const pc = E.c[i - 1], po = E.o[i - 1];
@@ -460,7 +468,7 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
         if (!st.touched) { st.touched = true; funnel.touches++; }
         const op = enter(st, i, entry, how);
         // worst case: the candle that filled the limit also reached the stop
-        if (op && how === "retest" && (long ? lo <= op.stop : hi + sp >= op.stop)) {
+        if (op && how !== "engulf" && (long ? lo <= op.stop : hi + sp >= op.stop)) {
           closeTrade(op, now, op.stop, "stop");
           open = open.filter((x) => x !== op);
         }
@@ -537,8 +545,8 @@ export function runModel1Pass(p: Prepared, cfg: Config, tf: CrtTf, capByDay: Map
     if (qmEntry) {
       if (!st.qm) return { ...lv, stage: "key" };
       if (!st.broke) return { ...lv, stage: "key", level: st.qm.breakout };
-      // a limit at the breakout level, or an engulfing candle at the QM line
-      return { ...lv, stage: "limit", order: orderAt(cfg.qmEntry === "engulf" ? st.qm.line : st.qm.breakout) };
+      // a limit at the QM line or the breakout level, or an engulfing candle near the QM line
+      return { ...lv, stage: "limit", order: orderAt(cfg.qmEntry === "both" || cfg.qmEntry === "retest" ? st.qm.breakout : st.qm.line) };
     }
     if (!st.mss) {
       const list = long ? highs : lows;

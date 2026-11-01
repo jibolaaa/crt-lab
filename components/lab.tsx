@@ -1,13 +1,13 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_CONFIG, type Config, type RunResult } from "../engine";
-import { ALL_DEFAULT, DEFAULT_MARKET, MAX_CANDLES, MAX_HISTORY_DAYS, MARKETS, defaultSpread, defaultStopBuffer, marketById, type Spec } from "../lib/markets";
+import { ALL_DEFAULT, DEFAULT_MARKET, MAX_CANDLES, MAX_HISTORY_DAYS, MARKETS, defaultSpread, defaultStopBuffer, granularityFor, marketById, type Spec } from "../lib/markets";
 import { loadDerivCandles, type DerivCandle } from "../lib/deriv";
 import { simulate, type MoneyCfg } from "../lib/money";
 import type { Columns, DataInfo, FromWorker, MatterRow, Request, ScanMarket, StoredInfo, TargetRow, ToWorker } from "../lib/protocol";
 import { combine, marketCfg, type ScanRow } from "../lib/scan";
 import { readHash, writeHash, type View } from "../lib/urlstate";
-import { monthStarts, sliceResult } from "../lib/period";
+import { monthStarts, sliceResult, yearStart } from "../lib/period";
 import { fmtR } from "../lib/format";
 import { CheckFilter, Choice, MarketBar, Settings } from "./controls";
 import { Now } from "./now";
@@ -17,8 +17,8 @@ import { Method } from "./method";
 import { AllMarkets } from "./allmarkets";
 
 const DATA_URL = "/data/eurusd-15m.bin";
-/** Live markets load 5-minute candles, so daily CRTs can look for 5-minute breaks of structure. */
-const LIVE_GRANULARITY = 300;
+/** The worker keeps each market's candles by symbol and candle length. */
+const keyOf = (symbol: string, gran: number) => `${symbol}@${gran}`;
 /** Daily candles load this far back too, so the weekly and daily structure and key levels can be read. */
 const DAILY_DAYS = 6 * 365;
 const MONEY_KEY = "crt-lab:money";
@@ -58,7 +58,7 @@ function whenVisible(): Promise<void> {
 const dropped = (shortBy: string | null | undefined) => !!shortBy && shortBy.startsWith("The connection");
 
 /** Candles that have closed, as columns for the worker. */
-function toColumns(candles: DerivCandle[], granularity = LIVE_GRANULARITY): Columns {
+function toColumns(candles: DerivCandle[], granularity: number): Columns {
   const now = Date.now() / 1000;
   const rows = candles.filter((c) => c.epoch + granularity <= now); // the newest candle is usually still forming
   const col = (k: "epoch" | "open" | "high" | "low" | "close") => Float64Array.from(rows, (r) => r[k]);
@@ -83,10 +83,12 @@ export default function Lab() {
   const [loading, setLoading] = useState<{ text: string; fraction?: number } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
-  const [fromKey, setFromKey] = useState("all"); // "From": the start of a month, or all the prices
+  const [fromKey, setFromKey] = useState("all"); // "From": all the prices, this year, or the start of a month
   const [matters, setMatters] = useState<MatterRow[] | null>(null);
   const [targets, setTargets] = useState<TargetRow[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // ---- all markets ----
   const [scan, setScan] = useState<{ gen: number; rows: Record<string, ScanRow> }>({ gen: 0, rows: {} });
@@ -99,14 +101,19 @@ export default function Lab() {
   const progressJob = useRef(0); // the worker job whose progress shows
   const runJob = useRef(0);
   const waiting = useRef(new Map<number, (m: FromWorker) => void>());
-  /** What the worker holds, by Deriv symbol. */
+  /** What the worker holds, by symbol and candle length (keyOf). */
   const stored = useRef(new Map<string, StoredInfo>());
+  /** Symbols whose daily candles the worker has. */
+  const dailyLoaded = useRef(new Set<string>());
   /** Deriv loads run one at a time. */
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const scanGen = useRef(0);
   const scanToken = useRef(0);
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
+  const gran = granularityFor(cfg);
+  const granRef = useRef(gran);
+  granRef.current = gran;
   const allRef = useRef(allIds);
   allRef.current = allIds;
   const pending = useRef<{ spread?: number; stopBuffer?: number }>({});
@@ -174,23 +181,27 @@ export default function Lab() {
   const setAllIds = useCallback((ids: string[]) => { setAllIdsState(ids); save(ALL_KEY, ids); }, []);
 
   /** Load one Deriv market into the worker, as far back as Deriv sends (once, unless forced). */
-  const ensure = useCallback((symbol: string, onProgress?: (count: number, oldest: number) => void, force = false) => {
+  const ensure = useCallback((symbol: string, granularity: number, onProgress?: (count: number, oldest: number) => void, force = false) => {
+    const key = keyOf(symbol, granularity);
     const run = async (): Promise<StoredInfo> => {
-      const have = stored.current.get(symbol);
+      const have = stored.current.get(key);
       if (have && !force) return have;
       await whenVisible(); // wait while the page is in the background
       const now = Date.now() / 1000;
-      const res = await loadDerivCandles(symbol, { from: Math.floor(now - MAX_HISTORY_DAYS * 86400), granularity: LIVE_GRANULARITY, maxCandles: MAX_CANDLES, onProgress });
-      const cols = toColumns(res.candles);
-      const m = await ask({ type: "store", key: symbol, ...cols, pipSize: res.pipSize, shortBy: res.shortBy }, [cols.t.buffer, cols.o.buffer, cols.h.buffer, cols.l.buffer, cols.c.buffer]).done;
+      const res = await loadDerivCandles(symbol, { from: Math.floor(now - MAX_HISTORY_DAYS * 86400), granularity, maxCandles: MAX_CANDLES, onProgress });
+      const cols = toColumns(res.candles, granularity);
+      const m = await ask({ type: "store", key, ...cols, pipSize: res.pipSize, shortBy: res.shortBy }, [cols.t.buffer, cols.o.buffer, cols.h.buffer, cols.l.buffer, cols.c.buffer]).done;
       if (m.type !== "stored") throw new Error(m.type === "error" ? m.message : "Couldn't keep the prices.");
-      // years of daily candles for the structure and key levels; without them the 5-minute history is used
-      try {
-        const d = await loadDerivCandles(symbol, { from: Math.floor(now - DAILY_DAYS * 86400), granularity: 86400, maxCandles: 4000 });
-        const dc = toColumns(d.candles, 86400);
-        await ask({ type: "storeDaily", key: symbol, ...dc }, [dc.t.buffer, dc.o.buffer, dc.h.buffer, dc.l.buffer, dc.c.buffer]).done;
-      } catch { /* keep going without them */ }
-      stored.current.set(symbol, m.info);
+      // years of daily candles for the structure and key levels; without them the loaded history is used
+      if (force || !dailyLoaded.current.has(symbol)) {
+        try {
+          const d = await loadDerivCandles(symbol, { from: Math.floor(now - DAILY_DAYS * 86400), granularity: 86400, maxCandles: 4000 });
+          const dc = toColumns(d.candles, 86400);
+          await ask({ type: "storeDaily", key: symbol, ...dc }, [dc.t.buffer, dc.o.buffer, dc.h.buffer, dc.l.buffer, dc.c.buffer]).done;
+          dailyLoaded.current.add(symbol);
+        } catch { /* keep going without them */ }
+      }
+      stored.current.set(key, m.info);
       return m.info;
     };
     const p = queue.current.then(run, run);
@@ -232,27 +243,27 @@ export default function Lab() {
       return;
     }
     const symbol = mk.symbol!;
-    setLoading({ text: stored.current.has(symbol) && !force ? `Getting ${mk.name} ready` : `Connecting to Deriv for ${mk.name}` });
+    setLoading({ text: stored.current.has(keyOf(symbol, gran)) && !force ? `Getting ${mk.name} ready` : `Connecting to Deriv for ${mk.name}` });
     const started = Date.now() / 1000;
     const progress = (name: string) => (count: number, oldest: number) => {
       if (loadToken.current === token) setLoading({ text: `Loading ${name} from Deriv: ${count.toLocaleString("en-GB")} candles so far`, fraction: Math.min(1, Math.max(0, (started - oldest) / YEAR)) });
     };
     (async () => {
-      await ensure(symbol, progress(mk.name), force);
+      await ensure(symbol, gran, progress(mk.name), force);
       let partnerKey: string | null = null, smt: DataInfo["smt"] = null;
       if (mk.smt && cfgRef.current.entry !== "model1") { // Model 1 has no SMT check: skip loading the related market
         try {
-          await ensure(mk.smt.symbol, progress(`${mk.smt.name} for the SMT check`), force);
-          partnerKey = mk.smt.symbol;
+          await ensure(mk.smt.symbol, gran, progress(`${mk.smt.name} for the SMT check`), force);
+          partnerKey = keyOf(mk.smt.symbol, gran);
           smt = { name: mk.smt.name, ok: true };
         } catch {
           smt = { name: mk.smt.name, ok: false };
         }
       }
       if (loadToken.current !== token) return;
-      done(await ask({ type: "use", marketId: mk.id, key: symbol, partnerKey, smt }).done);
+      done(await ask({ type: "use", marketId: mk.id, key: keyOf(symbol, gran), partnerKey, smt }).done);
     })().catch(fail);
-  }, [marketId, ensure, ask, onLoaded]);
+  }, [marketId, gran, ensure, ask, onLoaded]);
 
   useEffect(() => {
     if (!ready || view !== "one") return;
@@ -273,13 +284,13 @@ export default function Lab() {
     const markets: ScanMarket[] = [];
     for (const id of ids) {
       const mk = marketById(id);
-      const info = mk.symbol ? stored.current.get(mk.symbol) : undefined;
+      const info = mk.symbol ? stored.current.get(keyOf(mk.symbol, gran)) : undefined;
       if (!info) continue;
-      const partnerKey = mk.smt && cfgRef.current.entry !== "model1" && stored.current.has(mk.smt.symbol) ? mk.smt.symbol : null;
-      markets.push({ marketId: id, key: mk.symbol!, partnerKey, cfg: marketCfg(cfgRef.current, mk, info.lastClose) });
+      const partnerKey = mk.smt && cfgRef.current.entry !== "model1" && stored.current.has(keyOf(mk.smt.symbol, gran)) ? keyOf(mk.smt.symbol, gran) : null;
+      markets.push({ marketId: id, key: keyOf(mk.symbol!, gran), partnerKey, cfg: marketCfg(cfgRef.current, mk, info.lastClose) });
     }
     if (markets.length) send({ type: "scan", gen, markets });
-  }, [send]);
+  }, [send, gran]);
 
   /** Load the chosen markets one by one, and show each one's result as soon as it's in. */
   const loadAll = useCallback(async (ids: string[], forceAll = false, forceIds: string[] = []) => {
@@ -291,15 +302,15 @@ export default function Lab() {
       const force = forceAll || forceIds.includes(mk.id);
       const label = `${mk.name} (${k + 1} of ${live.length})`;
       const smtToo = !!mk.smt && cfgRef.current.entry !== "model1";
-      const need = force || !stored.current.has(mk.symbol!) || (smtToo && !stored.current.has(mk.smt!.symbol));
+      const need = force || !stored.current.has(keyOf(mk.symbol!, gran)) || (smtToo && !stored.current.has(keyOf(mk.smt!.symbol, gran)));
       if (need) setScanStatus({ text: `Loading ${label}`, fraction: k / live.length });
       const progress = (what: string) => (count: number) => {
         if (scanToken.current === token) setScanStatus({ text: `Loading ${what}: ${count.toLocaleString("en-GB")} candles`, fraction: (k + 0.5) / live.length });
       };
       try {
-        await ensure(mk.symbol!, progress(label), force);
+        await ensure(mk.symbol!, gran, progress(label), force);
         if (mk.smt && smtToo) {
-          try { await ensure(mk.smt.symbol, progress(`${mk.smt.name} for ${mk.name}'s SMT check`), force); } catch { /* SMT is left out */ }
+          try { await ensure(mk.smt.symbol, gran, progress(`${mk.smt.name} for ${mk.name}'s SMT check`), force); } catch { /* SMT is left out */ }
         }
         setScanErrors((e) => { if (!(mk.id in e)) return e; const next = { ...e }; delete next[mk.id]; return next; });
       } catch (e) {
@@ -310,7 +321,7 @@ export default function Lab() {
       scanMarkets([mk.id], scanGen.current);
     }
     if (scanToken.current === token) setScanStatus(null);
-  }, [ensure, scanMarkets]);
+  }, [ensure, scanMarkets, gran]);
 
   useEffect(() => {
     if (!ready || view !== "all") return;
@@ -352,7 +363,7 @@ export default function Lab() {
       }
       const bad = allRef.current.filter((id) => {
         const mk = marketById(id);
-        return errRef.current[id] || (mk.symbol && dropped(stored.current.get(mk.symbol)?.shortBy));
+        return errRef.current[id] || (mk.symbol && dropped(stored.current.get(keyOf(mk.symbol, granRef.current))?.shortBy));
       });
       if (bad.length) loadAll(allRef.current, false, bad);
     };
@@ -385,11 +396,45 @@ export default function Lab() {
     ...DEFAULT_CONFIG, spread: defaults.current.spread, stopBuffer: defaults.current.stopBuffer, weekendClosed: c.weekendClosed, usdNews: c.usdNews, driftUp: c.driftUp
   })), []);
 
-  // one market from the start of a month till now
+  // one market from 1 January, or the start of a month, till now
   const starts = useMemo(() => (result ? monthStarts(result.from, result.to) : []), [result]);
-  const fromStart = starts.length > 1 ? starts.find((m) => m.key === fromKey) ?? null : null; // only while the switch shows
+  const year = useMemo(() => (result ? yearStart(result.from, result.to) : null), [result]);
+  const showFrom = starts.length > 1 || !!year;
+  const fromStart = !showFrom ? null : fromKey === "year" ? year : starts.find((m) => m.key === fromKey) ?? null; // only while the switch shows
   useEffect(() => { setFromKey("all"); }, [marketId]);
   const shown = useMemo(() => (result && fromStart ? sliceResult(result, fromStart.t) : result), [result, fromStart]);
+  /** Save this market's candles, daily candles, rules and trades as one file, to attach in a chat. */
+  const saveFile = useCallback(async () => {
+    if (!result) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const m = await ask({ type: "export" }).done;
+      if (m.type !== "export") throw new Error(m.type === "error" ? m.message : "Couldn't save the file.");
+      const cols = (c: Columns) => ({ t: Array.from(c.t), o: Array.from(c.o), h: Array.from(c.h), l: Array.from(c.l), c: Array.from(c.c) });
+      const payload = {
+        app: "crt-lab", version: 1, saved: new Date().toISOString(),
+        market: { id: market.id, name: market.name, symbol: market.symbol ?? null, digits: market.digits, unit: market.unit },
+        rules: cfg, from: result.from, to: result.to, shownFrom: fromStart?.t ?? null,
+        candles: { seconds: m.dt, ...cols(m.candles) },
+        daily: m.daily ? { seconds: 86400, ...cols(m.daily) } : null,
+        trades: result.trades
+      };
+      const url = URL.createObjectURL(new Blob([JSON.stringify(payload)], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `crt-lab-${(market.symbol ?? market.id).replace(/^frx/, "")}-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      setSaveError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }, [result, ask, market, cfg, fromStart]);
+
   const dollars = useMemo(() => (shown ? simulate(shown.trades, spec, money) : null), [shown, spec, money]);
   const scanRows = useMemo(() => allIds.map((id) => scan.rows[id]).filter((r): r is ScanRow => !!r), [allIds, scan]);
   const allTotal = useMemo(() => (view === "all" ? combine(scanRows) : null), [view, scanRows]);
@@ -432,11 +477,15 @@ export default function Lab() {
             <Now result={result} market={market} cfg={cfg} loading={!!loading} dt={data?.dt} />
             <Verdict
               result={shown} data={data} market={market} failed={!!loadError} money={dollars} moneyCfg={money} model1={cfg.entry === "model1"}
-              picker={starts.length > 1 ? (
+              picker={showFrom ? (
                 <Choice
                   legend="From" name="from" value={fromStart ? fromStart.key : "all"} onChange={setFromKey}
-                  options={[["all", "All"], ...starts.map((m) => [m.key, MONTH_NAMES[new Date(m.t * 1000).getUTCMonth()]] as [string, string])]}
-                  hint="From the start of that month till now."
+                  options={[
+                    ["all", "All"],
+                    ...(year ? [["year", "This year"] as [string, string]] : []),
+                    ...starts.map((m) => [m.key, MONTH_NAMES[new Date(m.t * 1000).getUTCMonth()]] as [string, string])
+                  ]}
+                  hint="From 1 January, or the start of that month, till now."
                 />
               ) : null}
             />
@@ -473,6 +522,13 @@ export default function Lab() {
         )}
 
         {view === "one" && <Trades result={shown} market={market} getCandles={getCandles} money={dollars} moneyCfg={money} dt={data?.dt ?? 900} />}
+        {view === "one" && result && data && (
+          <section className="sec-save" aria-label="Save">
+            <button className="btn quiet small" onClick={saveFile} disabled={saving}>{saving ? "Saving..." : "Save trades and prices"}</button>
+            <p className="sec-note">One file with {market.name}&apos;s prices, your rules and every trade, to attach in a chat for checking.</p>
+            {saveError && <p className="sec-note neg" role="alert">{saveError}</p>}
+          </section>
+        )}
 
         <footer className="foot">
           <p>A testing tool, not financial advice. A rule set that made money in the past can still lose from here.</p>

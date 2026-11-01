@@ -264,7 +264,9 @@ function describeM1(s: LiveSetup, px: (x: number) => string, cfg: Config): { tit
       const way = long ? "up" : "down";
       const text = cfg.bias === "weeklyLead"
         ? `The weekly structure doesn't point ${way}, or the daily points the other way, so no ${long ? "buys" : "sells"} on this range.`
-        : `${cfg.bias === "weeklySwings" ? "The weekly structure doesn't" : cfg.bias === "dailySwings" ? "The daily structure doesn't" : "The weekly and daily structure don't both"} point ${way}, so no ${long ? "buys" : "sells"} on this range.`;
+        : cfg.bias === "dailyNotAgainst"
+          ? `The daily structure points ${long ? "down" : "up"}, so no ${long ? "buys" : "sells"} on this range.`
+          : `${cfg.bias === "weeklySwings" ? "The weekly structure doesn't" : cfg.bias === "dailySwings" ? "The daily structure doesn't" : "The weekly and daily structure don't both"} point ${way}, so no ${long ? "buys" : "sells"} on this range.`;
       return { title: "Against the structure", text };
     }
     case "waiting":
@@ -303,6 +305,13 @@ function describeM1(s: LiveSetup, px: (x: number) => string, cfg: Config): { tit
           return {
             title: "Waiting at the QM line" + later,
             text: `Price closed past the breakout level, ${px(qm.breakout)}. ${long ? "Buy" : "Sell"} on an engulfing ${chart} candle back at the QM line, ${px(qm.line)}. ${plan}`,
+            hot: true
+          };
+        }
+        if (cfg.qmEntry === "line" || cfg.qmEntry === "lineEngulf") {
+          return {
+            title: `${long ? "Buy" : "Sell"} limit set` + later,
+            text: `Price closed past the breakout level, ${px(qm.breakout)}. ${long ? "Buy" : "Sell"} limit at ${px(q.level)}, the QM line${cfg.qmEntry === "lineEngulf" ? `, or an engulfing ${chart} candle before price gets there` : ""}. ${plan}`,
             hot: true
           };
         }

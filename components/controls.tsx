@@ -111,8 +111,8 @@ export function Settings(p: Props) {
           <Choice
             legend="Model" name="model" value={c.entry === "model1" ? "model1" : "classic"}
             onChange={(v) => u(MODEL_RULES[v])}
-            options={[["model1", "Model 1: 3-candle CRT"], ["classic", "Old rules"]]}
-            hint="Model 1: a range candle, inside candles, then a sweep into a key level that fits the structure, the MSS, the inducement and a limit at the order block. Old rules: candle 2 sweeps candle 1, then a 1-hour zone and a 5-minute BOS."
+            options={[["model1", "Model 1: CRT and QM"], ["classic", "Old rules"]]}
+            hint="Model 1: a 4-hour range candle, a sweep into a key level that fits the structure, then the QM on the 15-minute chart: a limit at the QM line, or an engulfing candle there. Old rules: candle 2 sweeps candle 1, then a 1-hour zone and a 5-minute BOS."
           />
           <hr className="divider" />
           {c.entry === "model1" ? <Model1Rules {...p} /> : <>
@@ -305,7 +305,7 @@ function Model1Rules(p: Props) {
         legend="Range candles" values={c.crt}
         options={[["h4", "4-hour"], ["day", "Daily"], ["week", "Weekly"]] as [CrtTf, string][]}
         onChange={(v, on) => u({ crt: toggleIn(c.crt, v, on) })}
-        hint="Candle 1 sets the range. Then a candle takes one side into a key level and turns back."
+        hint="Candle 1 sets the range. Then a candle takes one side into a key level and turns back. On 8 years of EUR/USD with the QM line entry, 4-hour ranges did best: daily ranges added trades that lost."
       />
       <Choice
         legend="CRT" name="crtkind" value={c.crtKind} onChange={(v) => u({ crtKind: v })}
@@ -314,8 +314,8 @@ function Model1Rules(p: Props) {
       />
       <Choice
         legend="Structure" name="m1bias" value={c.bias} onChange={(v) => u({ bias: v })}
-        options={[["dailySwings", "Daily only"], ["weeklyLead", "Weekly leads"], ["weeklyDaily", "Weekly and daily agree"], ["weeklySwings", "Weekly only"], ["off", "Off"]]}
-        hint="Sells need lower highs and lower lows, buys higher highs and higher lows, from finished weeks and days, read on years of Deriv's daily candles. Weekly leads: the weekly agrees and the daily isn't the other way (mixed is fine). A close past the last swing the other way makes a chart mixed. Daily only had the best win rate on 8 years of EUR/USD."
+        options={[["dailyNotAgainst", "Not against the daily"], ["dailySwings", "Daily agrees"], ["weeklyLead", "Weekly leads"], ["weeklyDaily", "Weekly and daily agree"], ["weeklySwings", "Weekly only"], ["off", "Off"]]}
+        hint="Lower highs and lower lows are bearish, higher highs and higher lows bullish, from finished weeks and days, read on years of Deriv's daily candles. A close past the last swing the other way makes a chart mixed. Not against the daily: no sells while the daily is bullish, no buys while it's bearish, and mixed is fine. On 8 years of EUR/USD, trades while the daily was mixed did as well as trades with it, and trades against it lost. Daily agrees skips mixed days too. Weekly leads: the weekly agrees and the daily isn't the other way."
       />
       <Choice
         legend="Trade direction" name="side" value={c.side} onChange={(v) => u({ side: v })}
@@ -363,8 +363,8 @@ function Model1Rules(p: Props) {
       <Choice
         legend="Entry" name="m1entry" value={c.m1Entry === "ob" ? "ob" : c.qmEntry}
         onChange={(v) => u(v === "ob" ? { m1Entry: "ob" } : { m1Entry: "qm", qmEntry: v })}
-        options={[["both", "Either, whichever comes first"], ["retest", "Breakout retest"], ["engulf", "Engulfing at the QM line"], ["ob", "Order block after the MSS"]]}
-        hint="For a buy: the sweep's low is the Apex, the low before it is the QM line, and the high between them is the breakout level. Once a candle closes back above the breakout level: a limit at it (the retest), or an engulfing candle back at the QM line. Order block: the MSS, the inducement, then a limit at the order block."
+        options={[["lineEngulf", "QM line or engulfing, whichever comes first"], ["line", "Limit at the QM line"], ["engulf", "Engulfing at the QM line"], ["both", "Breakout retest or engulfing"], ["retest", "Breakout retest"], ["ob", "Order block after the MSS"]]}
+        hint="For a buy: the sweep's low is the Apex, the low before it is the QM line, and the high between them is the breakout level. Once a candle closes back above the breakout level: a limit at the QM line, or an engulfing candle near it. The breakout retest buys at the breakout level instead, further from the stop: on 8 years of EUR/USD it won more often but made far less. Order block: the MSS, the inducement, then a limit at the order block."
       />
       <Choice
         legend="Entry chart" name="echart" value={c.entryChart} onChange={(v: EntryChart) => u({ entryChart: v })}
@@ -400,7 +400,7 @@ function Model1Rules(p: Props) {
             <NumberField label="Stop buffer" unit={m.unitName} value={c.stopBuffer / m.unit} min={0} max={1e6} onChange={(v) => u({ stopBuffer: v * m.unit })} />
             <NumberField label="Spread" unit={m.unitName} value={c.spread / m.unit} min={0} max={1e6} onChange={(v) => u({ spread: v * m.unit })} />
           </div>
-          <span className="hint">The target is the range's far end. The spread is an estimate: copy yours from the MT5 app.</span>
+          <span className="hint">The target is the range's far end. The spread is an estimate: copy yours from the MT5 app. It matters a lot here, because the stops are tight.</span>
         </>
       ) : (
         <span className="hint">The target is the range's far end. Each market uses its own usual spread and stop room.</span>

@@ -62,7 +62,7 @@ export function AllMarkets(p: Props) {
         ) : (
           rows.length > 0 && (
             <p className="data-meta">
-              Live from Deriv, as far back as it sends 5-minute candles for each market. <button className="linkbtn" onClick={p.onRefresh}>Refresh all</button>
+              Live from Deriv, as far back as it sends 15-minute candles for each market (5-minute for the order block entry and the old rules). <button className="linkbtn" onClick={p.onRefresh}>Refresh all</button>
             </p>
           )
         )}

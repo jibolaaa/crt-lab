@@ -6,14 +6,14 @@ export type View = "one" | "all";
 export interface Saved { marketId?: string; view?: View; cfg: Partial<Config> }
 
 const ONE_OF = {
-  bias: ["off", "weeklyCrt", "structure", "premiumDiscount", "majority", "allAgree", "weeklyDaily", "weeklyLead", "weeklySwings", "dailySwings"],
+  bias: ["off", "weeklyCrt", "structure", "premiumDiscount", "majority", "allAgree", "weeklyDaily", "weeklyLead", "weeklySwings", "dailySwings", "dailyNotAgainst"],
   side: ["auto", "both", "buys", "sells"],
   entry: ["shift", "retest", "qm", "model1"],
   obStop: ["tip", "candle"],
   entryChart: ["auto", "m5", "m15", "m30", "h1", "h4"],
   crtKind: ["both", "two", "three"],
   m1Entry: ["qm", "ob"],
-  qmEntry: ["both", "engulf", "retest"],
+  qmEntry: ["lineEngulf", "line", "engulf", "both", "retest"],
   zone: ["sweep", "any", "obFvg", "fvg", "ob", "off"],
   timing: ["sameDay", "nextDay", "either"],
   stop: ["sweep", "pullback", "ob"],

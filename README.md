@@ -6,8 +6,8 @@ See where today's Candle Range Theory (CRT) setups stand, on one market or all o
 
 The page's rules. For a buy (sells are the mirror image):
 
-1. **The range.** Candle 1 is a 4-hour candle or a day (weekly is an option). Candle 2 can take its low straight away (a 2-candle CRT), or after one or more inside candles that take neither its high nor its low (a 3-candle CRT). Both count by default.
-2. **Structure.** The daily structure has to be bullish: higher highs and higher lows from swings on finished days. A close below the last higher low makes it mixed, and mixed means no trade. Weekly leads, weekly and daily agree, weekly only, or off are options. Structure is read on years of Deriv's daily candles, loaded with each market, so a market with only a few months of 5-minute prices (gold) still has a proper weekly and daily read.
+1. **The range.** Candle 1 is a 4-hour candle (daily and weekly are options). Candle 2 can take its low straight away (a 2-candle CRT), or after one or more inside candles that take neither its high nor its low (a 3-candle CRT). Both count.
+2. **Structure.** No buys while the daily structure is bearish: lower highs and lower lows from swings on finished days. Bullish or mixed is fine (a close past the last swing the other way makes it mixed). The daily agreeing, weekly leads, weekly and daily agree, weekly only, or off are options. Structure is read on years of Deriv's daily candles, loaded with each market.
 3. **The sweep into a key level.** A candle takes the range low into a key level that fits the structure: the candle right after, or a later one while the candles keep closing inside the range. Key levels come from one chart up (daily and 4-hour for a 4-hour range, weekly and daily for a daily range), also read on the years of daily candles. A level fits if it is:
    - the demand of the last higher low (the order block where the last rally to a higher high started),
    - where price broke up from (an old swing high that a close went above, now support, or a broken order block),
@@ -15,8 +15,8 @@ The page's rules. For a buy (sells are the mirror image):
    - any zone below the middle of the latest swing range (discount).
 
    It counts if nothing touched it since the range candle began. At a break, price has to move away first before a return counts as a touch.
-4. **The entry: the QM.** On the entry chart (15-minute for 4-hour ranges, 1-hour for daily): the sweep's lowest low is the Apex, the last swing low before it is the QM line, and the highest high between them is the breakout level. Once a candle closes above the breakout level, the buy is a limit at the breakout level (the retest), or an engulfing candle back at the QM line, whichever comes first. The older entry (the MSS, the inducement, then a limit at the order block) is still there to compare.
-5. **Stop and target.** The stop goes below the Apex. Half closes at the range's 50% level and the stop moves to the entry; the rest runs to the range high, with no cap. Targets under 1R are skipped. One position each way at a time, across range sizes, and at most 3 new trades a day.
+4. **The entry: the QM.** On the 15-minute chart (1-hour for daily ranges): the sweep's lowest low is the Apex, the last swing low before it is the QM line, and the highest high between them is the breakout level. Once a candle closes above the breakout level, a buy limit waits at the QM line, or the entry is an engulfing candle near it, whichever comes first. The breakout retest (a limit at the breakout level) and the older order block entry (the MSS, the inducement, then a limit at the order block) are there to compare.
+5. **Stop and target.** The stop goes below the Apex. Half closes at the range's 50% level and the stop moves to the entry; the rest runs to the range high, with no cap. Targets under 1.5R are skipped. One position each way at a time, across range sizes, and at most 3 new trades a day.
 
 The old rules (candle 2 sweeps candle 1, then a 1-hour zone and a 5-minute BOS, with a checklist percent) are one tap away under Change rules, Model.
 
@@ -30,7 +30,11 @@ Pick the markets you trade (it starts with CAD/JPY, gold, AUD/JPY and GBP/JPY) a
 
 ## From
 
-On one market, a From switch shows the result from the start of a month till now (from July, say), with that stretch's own trades, win rate and total.
+On one market, a From switch shows the result from 1 January (This year) or the start of a month till now (from July, say), with that stretch's own trades, win rate and total.
+
+## Save trades and prices
+
+On one market, Save trades and prices downloads one file with the loaded candles, the daily candles, the rules and every trade, to attach in a chat for checking the trades one by one.
 
 ## Which target
 
@@ -38,17 +42,25 @@ Under More detail, the same rules run with the target capped at 2R, 3R, 4R, 5R, 
 
 ## Model 1 on EUR/USD, 2014 to 2021
 
-The built-in prices have 15-minute candles, the same as the live page's entry chart for 4-hour ranges.
+The built-in prices have 15-minute candles, the same as the live page's entry chart, with a 1-pip spread. The default, then one change at a time:
 
-| Structure | Trades | Every 4 months | Won | Total | Last 30% |
-|---|---|---|---|---|---|
-| Daily only (the default) | 225 | 9.4 | 60% | +6.5R | −8.7R |
-| Weekly leads | 184 | 7.7 | 57% | −2.2R | −9.1R |
-| Weekly and daily agree | 71 | 3.0 | 54% | +0.6R | −2.8R |
-| Weekly only | 215 | 9.0 | 55% | −11.8R | −19.3R |
-| Off | 820 | 34.2 | 54% | −69.6R | −31.2R |
+| Rules | Trades | A year | Won | Total | Last 30% | Years up |
+|---|---|---|---|---|---|---|
+| The default | 267 | 33 (30 to 38) | 46% | +108.4R | +44.7R | 8 of 8 |
+| Breakout retest instead of the QM line | 299 | 37 (29 to 45) | 51% | +0.7R | −0.8R | 5 of 8 |
+| Limit at the QM line only | 249 | 31 (26 to 35) | 44% | +107.3R | +47.0R | 7 of 8 |
+| Add daily ranges | 379 | 47 (41 to 54) | 42% | +94.2R | +19.3R | 6 of 8 |
+| The daily structure has to agree | 96 | 12 (6 to 16) | 47% | +39.0R | +10.3R | 8 of 8 |
+| No structure rule | 340 | 43 (36 to 46) | 44% | +92.5R | +40.0R | 7 of 8 |
+| Targets of 1R and up | 318 | 40 (33 to 48) | 50% | +107.3R | +51.0R | 8 of 8 |
+| Targets of 2R and up | 221 | 28 (25 to 31) | 42% | +105.0R | +45.1R | 8 of 8 |
+| Spread 2.5 pips instead of 1 | 222 | 28 (24 to 31) | 42% | +5.5R | −0.5R | 4 of 8 |
+| Spread 3 pips | 210 | 26 (21 to 31) | 41% | −10.0R | −3.8R | 4 of 8 |
+| The old default (4-hour and daily ranges, breakout retest, the daily agrees, 1R and up) | 225 | 28 (19 to 38) | 60% | +6.5R | −8.7R | 6 of 8 |
 
-With the daily structure, 3-candle CRTs won 68% of 28 trades (+2.0R) and 2-candle CRTs won 59% of 211 (+2.1R). Skipping targets under 2R kept 93 trades and made +18.5R, but only +0.2R of it on the last 30%. Every row lost or broke even on the last 30%, the part kept aside for checking, so none of these shows an edge yet.
+The QM line made the difference: the breakout retest sits further from the stop, so it won more often but made almost nothing. Daily ranges added trades that lost. Trades while the daily structure was mixed did about as well per trade as trades with it, and trades against it lost (86 trades, −15.7R).
+
+Two catches. The stops are tight (about 9.5 pips on EUR/USD, half of them between 6.5 and 14), so the spread decides a lot: at 2.5 pips the same rules about broke even. And these settings were picked by looking at all 8 years, so the last 30% isn't a clean check any more. Prices the settings were never picked on, like 2026 on the four pairs, are the real test.
 
 ## The old rules
 
@@ -103,12 +115,12 @@ Capping the target at 0.5R raised the win rate to 58 to 59%, but lost 33.7R over
 - When one candle could have hit both the stop and a target, the stop is assumed to come first. A limit that fills on a candle that also reaches the stop counts as a loss.
 - Every trade pays the spread: buys open at the ask and close at the bid.
 - Higher-timeframe levels only count after the candle that completed them has closed, and zones stop counting once a candle of their own timeframe closes through them.
-- 311 automated tests: hand-built candle scenarios with exact expected results (Model 1's 2-candle and 3-candle ranges, the QM breakout retest and engulfing entries, the order block entry, its key levels, structure and the years of daily candles; 5-minute BOS and retest entries, the candle that made the sweep as the order block, zones outside the killer zone, daily and weekly QM sells, deeper sweeps, closes outside the range, old-high key levels, SMT), key level detection, the dollar maths, adding up All markets and cutting it to one month, a fake Deriv server for the price loader, and real-data checks that cut the prices off at each entry and confirm the same trade, key level and percent still come out.
+- 331 automated tests: hand-built candle scenarios with exact expected results (Model 1's 2-candle and 3-candle ranges, the QM line, breakout retest and engulfing entries, the order block entry, its key levels, structure and the years of daily candles; 5-minute BOS and retest entries, the candle that made the sweep as the order block, zones outside the killer zone, daily and weekly QM sells, deeper sweeps, closes outside the range, old-high key levels, SMT), key level detection, the dollar maths, adding up All markets and cutting it to one month or this year, a fake Deriv server for the price loader, and real-data checks that cut the prices off at each entry and confirm the same trade, key level and percent still come out.
 
 ## Data
 
 - **Built in:** EUR/USD 15-minute bid candles from 2014 to 2021, from Dukascopy via the [FX-Data](https://github.com/FX-Data/FX-Data-EURUSD-DS) project. `scripts/build_eurusd.py` turns their MT4 history files into `public/data/eurusd-15m.bin`. February 2017 is missing in the source.
-- **Live:** Deriv's public price feed, loaded straight from the browser as 5-minute candles, as far back as Deriv sends them (about 5 months for gold), up to 150,000 candles a market, plus up to 6 years of daily candles for Model 1's structure and key levels: EUR/USD, GBP/USD, AUD/USD, GBP/JPY, AUD/JPY, CAD/JPY, gold, silver, US Tech 100, US 500, Wall Street 30, BTC/USD and Volatility 25, 50 and 75 (and their 1s versions), plus a related market for SMT where one fits (the old rules only).
+- **Live:** Deriv's public price feed, loaded straight from the browser as far back as Deriv sends it, up to 3 years and 150,000 candles a market: 15-minute candles for the QM entries, and 5-minute ones for the order block entry and the old rules (Deriv keeps those for a shorter time, about 5 months for gold). Up to 6 years of daily candles load too, for Model 1's structure and key levels. Markets: EUR/USD, GBP/USD, AUD/USD, GBP/JPY, AUD/JPY, CAD/JPY, gold, silver, US Tech 100, US 500, Wall Street 30, BTC/USD and Volatility 25, 50 and 75 (and their 1s versions), plus a related market for SMT where one fits (the old rules only).
 - **Volatility indices:** Deriv makes their prices with a random number generator and says any patterns in their history are coincidental, so there's no liquidity or session for CRT to read. On made-up random prices with V75's volatility, the rules won about 1 trade in 4 and lost a little on average. They're on the page so they can be tested like the rest.
 
 ## Run it

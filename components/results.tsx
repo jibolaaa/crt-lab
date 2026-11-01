@@ -292,13 +292,20 @@ function FunnelM1({ result, cfg }: { result: RunResult; cfg: Config }) {
     {
       label: cfg.bias === "off" ? "A candle took the range's high or low" : "A candle took the range's high or low, with the structure",
       n: f.sweeps,
-      side: cfg.bias === "off" ? undefined : `${fmtInt(f.biasBlocked)} ranges and directions were against the structure or had none, so they were skipped.`
+      side: cfg.bias === "off" ? undefined : `${fmtInt(f.biasBlocked)} ranges and directions were against the ${cfg.bias === "dailyNotAgainst" ? "daily structure" : "structure or had none"}, so they were skipped.`
     }
   ];
   if (cfg.requireKeyLevel) items.push({ label: cfg.keyFit ? "The sweep reached a key level that fits the structure" : "The sweep reached a fresh key level", n: f.keyLevels });
   if (cfg.m1Entry === "qm") {
     items.push({ label: "A QM, and a close past the breakout level", n: f.closedInside, side: "A deeper sweep starts the QM over, so one range can count more than once." });
-    items.push({ label: cfg.qmEntry === "engulf" ? "An engulfing candle back at the QM line" : cfg.qmEntry === "retest" ? "Price came back to the breakout level" : "The breakout retest, or an engulfing candle at the QM line", n: f.touches });
+    const reached = {
+      lineEngulf: "Price came back to the QM line, or an engulfing candle near it",
+      line: "Price came back to the QM line",
+      engulf: "An engulfing candle back at the QM line",
+      both: "The breakout retest, or an engulfing candle at the QM line",
+      retest: "Price came back to the breakout level"
+    }[cfg.qmEntry];
+    items.push({ label: reached, n: f.touches });
   } else {
     items.push({ label: "An MSS on the entry chart", n: f.closedInside, side: "A new tip starts the entry over, so one sweep can have more than one MSS." });
     items.push({ label: "The first pullback left an inducement: limit set at the order block", n: f.zones });
@@ -419,7 +426,8 @@ function BySize({ trades }: { trades: Trade[] }) {
   const rows = ([
     ["4-hour ranges", (t: Trade) => t.tf === "h4"], ["Daily ranges", (t: Trade) => t.tf === "day"], ["Weekly ranges", (t: Trade) => t.tf === "week"],
     ["2-candle CRTs", (t: Trade) => !t.m1?.inside], ["3-candle CRTs (inside candle)", (t: Trade) => !!t.m1?.inside],
-    ["Breakout retest", (t: Trade) => t.m1?.how === "retest"], ["Engulfing at the QM line", (t: Trade) => t.m1?.how === "engulf"], ["Order block", (t: Trade) => t.m1?.how === "ob"]
+    ["Limit at the QM line", (t: Trade) => t.m1?.how === "line"], ["Breakout retest", (t: Trade) => t.m1?.how === "retest"],
+    ["Engulfing at the QM line", (t: Trade) => t.m1?.how === "engulf"], ["Order block", (t: Trade) => t.m1?.how === "ob"]
   ] as [string, (t: Trade) => boolean][])
     .map(([name, f]) => [name, trades.filter(f)] as [string, Trade[]])
     .filter(([, list]) => list.length > 0);

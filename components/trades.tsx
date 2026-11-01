@@ -278,7 +278,9 @@ function M1Sheet({ t, market, candles, err, money, moneyCfg, dref, onClose }: {
         t: t.entryT - m.entryDt,
         text: m.how === "retest"
           ? `Price came back to the breakout level. ${long ? "Bought" : "Sold"} at ${px(t.entry)}${after}.`
-          : `An engulfing ${chart} candle back at the QM line. ${long ? "Bought" : "Sold"} at its close, ${px(t.entry)}${after}.`
+          : m.how === "line"
+            ? `Price came back to the QM line. ${long ? "Bought" : "Sold"} at ${px(t.entry)}${after}.`
+            : `An engulfing ${chart} candle back at the QM line. ${long ? "Bought" : "Sold"} at its close, ${px(t.entry)}${after}.`
       },
       { text: `Stop ${px(t.stop)}, past the Apex, risking ${units(t.risk, market)}. Target ${px(t.tp2)}, ${t.plannedR.toFixed(1)}R away${t.partial ? `, with half off at ${px(t.tp1)}.` : "."}` }
     );
@@ -302,7 +304,7 @@ function M1Sheet({ t, market, candles, err, money, moneyCfg, dref, onClose }: {
       <div className="sheet-inner">
         <div className="sheet-head">
           <div>
-            <h3 id="sheet-h">{long ? "Buy" : "Sell"} on {fmtDate(t.entryT - 1)}, {name} {m.inside ? "3" : "2"}-candle CRT, {isQm ? (m.how === "retest" ? "breakout retest" : "engulfing at the QM line") : "order block"} on {chart}</h3>
+            <h3 id="sheet-h">{long ? "Buy" : "Sell"} on {fmtDate(t.entryT - 1)}, {name} {m.inside ? "3" : "2"}-candle CRT, {isQm ? (m.how === "retest" ? "breakout retest" : m.how === "line" ? "limit at the QM line" : "engulfing at the QM line") : "order block"} on {chart}</h3>
             <p className={tone(t.r)}>{fmtR(t.r, 2)}{money && !money.skipped ? ` (${fmtUsd(money.pnlUsd)})` : ""}. {exitText(t)}.</p>
           </div>
           <button className="close" onClick={() => dref.current?.close()} aria-label="Close">

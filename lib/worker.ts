@@ -5,7 +5,7 @@
 import { prepare, runBacktest, seriesFromBuffer, type Config, type Prepared, type Series } from "../engine";
 import { candleSeconds } from "../engine/htf";
 import { variantsFor } from "./matters";
-import type { FromWorker, MatterRow, StoredInfo, TargetRow, ToWorker } from "./protocol";
+import type { Columns, FromWorker, MatterRow, StoredInfo, TargetRow, ToWorker } from "./protocol";
 import { toScanRow } from "./scan";
 
 /** The target caps tried in the "Which target?" table. */
@@ -16,8 +16,10 @@ const post = (msg: FromWorker) => ctx.postMessage(msg);
 
 interface Stored { s: Series; pipSize: number | null; shortBy: string | null }
 const store = new Map<string, Stored>();
-/** Daily candles reaching years back, by the same key: Model 1 reads structure and key levels on them. */
+/** Daily candles reaching years back, by Deriv symbol: Model 1 reads structure and key levels on them. */
 const dailyStore = new Map<string, Series>();
+/** Stored candles are keyed "symbol@seconds" (5- or 15-minute); daily candles by the symbol alone. */
+const symbolOf = (key: string) => key.split("@")[0];
 /** Prepared candles, by series, related market and the settings that change them. */
 const preparedCache = new Map<string, Prepared>();
 /** The one-market view: which stored candles it reads. */
@@ -43,7 +45,7 @@ function preparedFor(key: string, partnerKey: string | null, cfg: Config) {
     if (!e) throw new Error("Those prices aren't loaded yet.");
     const partner = partnerKey ? store.get(partnerKey)?.s ?? null : null;
     if (preparedCache.size > 60) preparedCache.clear(); // keep memory in check
-    p = prepare(e.s, cfg, partner && partner.n ? partner : null, dailyStore.get(key) ?? null);
+    p = prepare(e.s, cfg, partner && partner.n ? partner : null, dailyStore.get(symbolOf(key)) ?? null);
     preparedCache.set(id, p);
   }
   return p;
@@ -97,7 +99,7 @@ ctx.onmessage = async (e: MessageEvent<ToWorker>) => {
       post({ type: "stored", job: msg.job, info: infoOf(msg.key, store.get(msg.key)!) });
     } else if (msg.type === "storeDaily") {
       dailyStore.set(msg.key, { n: msg.t.length, t: msg.t, o: msg.o, h: msg.h, l: msg.l, c: msg.c });
-      for (const k of [...preparedCache.keys()]) if (k.split("|")[0] === msg.key) preparedCache.delete(k);
+      for (const k of [...preparedCache.keys()]) if (symbolOf(k.split("|")[0]) === msg.key) preparedCache.delete(k);
       post({ type: "storedDaily", job: msg.job, count: msg.t.length });
     } else if (msg.type === "use") {
       useStored(msg.job, msg.marketId, msg.key, msg.partnerKey, msg.smt);
@@ -141,6 +143,13 @@ ctx.onmessage = async (e: MessageEvent<ToWorker>) => {
         const r = runBacktest(preparedFor(m.key, m.partnerKey, m.cfg), m.cfg);
         post({ type: "scanRow", job: msg.job, gen: msg.gen, row: toScanRow(m.marketId, infoOf(m.key, e), r) });
       }
+    } else if (msg.type === "export") {
+      if (!current) throw new Error("Load a market first.");
+      const s = store.get(current.key)!.s, d = dailyStore.get(symbolOf(current.key));
+      const cols = (x: Series): Columns => ({ t: Float64Array.from(x.t), o: Float64Array.from(x.o), h: Float64Array.from(x.h), l: Float64Array.from(x.l), c: Float64Array.from(x.c) });
+      const candles = cols(s), daily = d ? cols(d) : null;
+      const transfer = [candles, daily].flatMap((c) => (c ? [c.t.buffer, c.o.buffer, c.h.buffer, c.l.buffer, c.c.buffer] : []));
+      ctx.postMessage({ type: "export", job: msg.job, dt: candleSeconds(s), candles, daily } satisfies FromWorker, transfer);
     } else if (msg.type === "candles") {
       if (!current) throw new Error("Load a market first.");
       const s = store.get(current.key)!.s;

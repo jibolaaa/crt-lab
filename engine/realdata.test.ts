@@ -166,6 +166,8 @@ describe.each(CONFIGS)("real EURUSD, %s", (_name, over) => {
 // Model 1, the three-candle CRT
 const M1_CONFIGS: [string, Partial<Config>][] = [
   ["Model 1", {}],
+  ["Model 1, the breakout retest, 4-hour and daily ranges, the daily structure agrees", { qmEntry: "both", crt: ["h4", "day"], bias: "dailySwings", minR: 1 }],
+  ["Model 1, a limit at the QM line only, daily ranges too", { qmEntry: "line", crt: ["h4", "day"], minR: 2 }],
   ["Model 1, engulfing at the QM line, no structure", { qmEntry: "engulf", bias: "off" }],
   ["Model 1, either QM entry, weekly and daily agree, 2-candle only", { qmEntry: "both", bias: "weeklyDaily", crtKind: "two", minR: 0.5 }],
   ["Model 1, QM on 1-hour for every range, weekly ranges too, any fresh key level", { entryChart: "h1", crt: ["h4", "day", "week"], keyFit: false, bias: "weeklySwings" }],
@@ -226,7 +228,8 @@ describe.each(M1_CONFIGS)("real EURUSD, %s", (_name, over) => {
       } else {
         // the QM shape: the Apex past the QM line, the breakout level on the other side, the break, then the entry
         const q = tr.qm!;
-        expect(m.how).toBe(cfg.qmEntry === "engulf" ? "engulf" : cfg.qmEntry === "retest" ? "retest" : m.how);
+        const allowed = { engulf: ["engulf"], retest: ["retest"], both: ["retest", "engulf"], line: ["line"], lineEngulf: ["line", "engulf"] }[cfg.qmEntry];
+        expect(allowed).toContain(m.how);
         expect(q.head).toBe(tr.sweepPrice);
         expect(d * (q.head - q.level)).toBeLessThan(0);
         expect(d * (q.smsLevel - q.level)).toBeGreaterThan(0);
@@ -234,9 +237,12 @@ describe.each(M1_CONFIGS)("real EURUSD, %s", (_name, over) => {
         expect(m.idmT).toBeLessThan(q.headT);
         expect(q.smsT).toBe(tr.mssT);
         expect(d * (q.head - tr.stop)).toBeGreaterThan(0); // the stop is past the Apex
-        // a limit at the breakout level fills there or better; an engulfing entry is the candle's close
+        // a limit at the breakout level or the QM line fills there or better; an engulfing entry is the candle's close
         if (m.how === "retest") expect(d * (q.smsLevel - tr.entry)).toBeGreaterThanOrEqual(-1e-9);
-        else expect(m.limit).toBe(tr.entry);
+        else if (m.how === "line") {
+          expect(m.limit).toBe(q.level);
+          expect(d * (q.level - tr.entry)).toBeGreaterThanOrEqual(-1e-9);
+        } else expect(m.limit).toBe(tr.entry);
       }
       if (tr.reason === "stop") expect(tr.r).toBeLessThanOrEqual(-0.999);
       if (tr.reason === "tp2") expect(tr.r).toBeGreaterThan(0);

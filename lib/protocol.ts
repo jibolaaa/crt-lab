@@ -68,6 +68,7 @@ export type ToWorker =
   | { type: "use"; job: number; marketId: string; key: string; partnerKey: string | null; smt: { name: string; ok: boolean } | null }
   | { type: "run"; job: number; cfg: Config; matters: boolean }
   | { type: "candles"; job: number; from: number; to: number }
+  | { type: "export"; job: number }
   | { type: "scan"; job: number; gen: number; markets: ScanMarket[] };
 
 export type FromWorker =
@@ -80,6 +81,8 @@ export type FromWorker =
   | { type: "targets"; job: number; rows: TargetRow[] }
   | { type: "candles"; job: number; t: number[]; o: number[]; h: number[]; l: number[]; c: number[] }
   | { type: "scanRow"; job: number; gen: number; row: ScanRow }
+  /** The one-market view's candles and daily candles, for saving to a file. */
+  | { type: "export"; job: number; dt: number; candles: Columns; daily: Columns | null }
   | { type: "error"; job: number; message: string };
 
 /** A message to the worker before it gets its job number. */

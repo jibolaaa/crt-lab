@@ -1,4 +1,5 @@
 // The markets the page can test, and how each one trades.
+import type { Config } from "../engine";
 
 export type Group = "Built in" | "Forex" | "Metals" | "US indices" | "Crypto" | "Synthetic indices";
 
@@ -74,11 +75,19 @@ export const DEFAULT_MARKET = "frxGBPJPY";
 export const ALL_DEFAULT = ["frxCADJPY", "frxXAUUSD", "frxAUDJPY", "frxGBPJPY"];
 
 /**
- * Live prices load as far back as Deriv sends 5-minute candles. This is only the oldest date asked
- * for; Deriv usually stops sooner (about 5 months for gold).
+ * Live prices load as far back as Deriv sends them: 15-minute candles for the QM entries, 5-minute for
+ * the order block entry and the old rules. This is only the oldest date asked for; Deriv can stop
+ * sooner (about 5 months of 5-minute candles for gold).
  */
 export const MAX_HISTORY_DAYS = 3 * 365;
-/** Most 5-minute candles kept for one market, so a phone doesn't run out of memory. */
+/**
+ * Seconds per live candle for a set of rules. The QM entries read 15-minute charts (and 1-hour and up),
+ * which Deriv keeps for much longer than 5-minute ones, so they load 15-minute candles. The order block
+ * entry and the old rules' breaks of structure need 5-minute candles.
+ */
+export const granularityFor = (c: Pick<Config, "entry" | "m1Entry" | "entryChart">) =>
+  c.entry !== "model1" || c.m1Entry === "ob" || c.entryChart === "m5" ? 300 : 900;
+/** Most candles kept for one market, so a phone doesn't run out of memory. */
 export const MAX_CANDLES = 150000;
 
 export const marketById = (id: string) => MARKETS.find((m) => m.id === id) ?? MARKETS[0];

@@ -32,7 +32,7 @@ export interface Bar {
  * daily both agree. "weeklyLead": the weekly agrees and the daily isn't the other way (it can be
  * mixed). "weeklySwings" or "dailySwings": that chart alone.
  */
-export type BiasMode = "off" | "weeklyCrt" | "structure" | "premiumDiscount" | "majority" | "allAgree" | "weeklyDaily" | "weeklyLead" | "weeklySwings" | "dailySwings";
+export type BiasMode = "off" | "weeklyCrt" | "structure" | "premiumDiscount" | "majority" | "allAgree" | "weeklyDaily" | "weeklyLead" | "weeklySwings" | "dailySwings" | "dailyNotAgainst";
 /** "any": an order block or a gap, joined when they overlap. "obFvg": a gap with the order block before it. */
 /**
  * "sweep": the order block is the candle that made the sweep (the last up candle at a swept high,
@@ -175,13 +175,18 @@ export interface Config {
   crtKind: "both" | "two" | "three";
   /**
    * Model 1's entry. "qm": after the sweep's low (the Apex) goes below the low before it (the QM line)
-   * and price closes back above the high between them (the breakout), a buy at the breakout level's
-   * retest, or on an engulfing candle at the QM line (see `qmEntry`). "ob": the MSS, the inducement,
-   * then a limit at the order block.
+   * and price closes back above the high between them (the breakout), a buy at the QM line or the
+   * breakout level (see `qmEntry`). "ob": the MSS, the inducement, then a limit at the order block.
    */
   m1Entry: "qm" | "ob";
-  /** Model 1, QM entries: "retest" a limit at the breakout level, "engulf" an engulfing candle at the QM line, "both" whichever comes first. */
-  qmEntry: "both" | "engulf" | "retest";
+  /**
+   * Model 1, QM entries, once price has closed past the breakout level:
+   * "lineEngulf" a limit at the QM line, or an engulfing candle near it, whichever comes first.
+   * "line" a limit at the QM line. "engulf" an engulfing candle near the QM line.
+   * "both" a limit at the breakout level (the retest), or an engulfing candle near the QM line.
+   * "retest" a limit at the breakout level.
+   */
+  qmEntry: "lineEngulf" | "line" | "engulf" | "both" | "retest";
 }
 
 export type EntryChart = "auto" | "m5" | "m15" | "m30" | "h1" | "h4";
@@ -235,9 +240,9 @@ export const CLASSIC_CONFIG: Config = {
 /** What switching to each model sets. */
 export const MODEL_RULES: Record<"model1" | "classic", Partial<Config>> = {
   model1: {
-    entry: "model1", crt: ["h4", "day"], bias: "dailySwings", keyLevelKinds: ["ob", "fvg", "rb", "breaker", "flip"],
-    crtKind: "both", m1Entry: "qm", qmEntry: "both",
-    maxR: 1000, minR: 1, partialAtTp1: true, timeStop: false, mustHave: [], minPct: 0, midCancels: false
+    entry: "model1", crt: ["h4"], bias: "dailyNotAgainst", keyLevelKinds: ["ob", "fvg", "rb", "breaker", "flip"],
+    crtKind: "both", m1Entry: "qm", qmEntry: "lineEngulf",
+    maxR: 1000, minR: 1.5, partialAtTp1: true, timeStop: false, mustHave: [], minPct: 0, midCancels: false
   },
   classic: {
     entry: "shift", crt: ["day", "week"], bias: "off", keyLevelKinds: ["old", "ob", "fvg", "rb"],
@@ -246,12 +251,12 @@ export const MODEL_RULES: Record<"model1" | "classic", Partial<Config>> = {
 };
 
 /**
- * The page's rules: Model 1. For a sell: a range candle (4-hour or daily), straight away or after inside
- * candles, then a candle that takes the range high into a key level that fits the structure, while the
- * daily structure is bearish (it had the best win rate of the structure rules on EUR/USD). On the entry
- * chart (15-minute for 4-hour ranges, 1-hour for daily): the QM line, the Apex above it, a close below
- * the breakout level, then a sell at the breakout level's retest or on an engulfing candle back at the
- * QM line, whichever comes first, with the stop above the Apex. See model1.ts.
+ * The page's rules: Model 1. For a sell: a 4-hour range candle, straight away or after inside candles,
+ * then a candle that takes the range high into a key level that fits the structure, unless the daily
+ * structure is bullish. On the 15-minute chart: the QM line, the Apex above it, a close below the
+ * breakout level, then a sell limit at the QM line or an engulfing candle near it, whichever comes
+ * first, with the stop above the Apex and a target at least 1.5R away. On EUR/USD 2014 to 2021 this
+ * did far better than the breakout retest, the daily ranges, or skipping mixed structure. See model1.ts.
  */
 export const DEFAULT_CONFIG: Config = { ...CLASSIC_CONFIG, ...MODEL_RULES.model1 };
 
@@ -376,7 +381,7 @@ export interface M1Info {
   limit: number; // where the order sat: the order block, no closer than the inducement
   after: number; // candles after the sweep candle the entry came in (0 = the sweep candle)
   /** How it came in: a limit at the order block, a breakout retest, or an engulfing candle at the QM line. */
-  how: "ob" | "retest" | "engulf";
+  how: "ob" | "retest" | "engulf" | "line";
 }
 
 export type LiveStage =

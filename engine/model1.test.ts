@@ -78,10 +78,10 @@ const cfg = (over: Partial<Config> = {}): Config => ({ ...DEFAULT_CONFIG, ...MEC
 const run = (s: Series, c: Config) => runBacktest(prepare(s, c), c);
 
 describe("Model 1 is the page's rules", () => {
-  it("defaults to 4-hour and daily ranges, 2 or 3 candles, the daily structure, either QM entry, and no target cap", () => {
+  it("defaults to 4-hour ranges, 2 or 3 candles, no trades against the daily structure, the QM line, and targets 1.5R or more", () => {
     expect(DEFAULT_CONFIG).toMatchObject({
-      entry: "model1", crt: ["h4", "day"], crtKind: "both", bias: "dailySwings", m1Entry: "qm", qmEntry: "both",
-      minR: 1, maxR: 1000, keyFit: true, entryChart: "auto"
+      entry: "model1", crt: ["h4"], crtKind: "both", bias: "dailyNotAgainst", m1Entry: "qm", qmEntry: "lineEngulf",
+      minR: 1.5, maxR: 1000, keyFit: true, entryChart: "auto"
     });
     expect(DEFAULT_CONFIG.keyLevelKinds).not.toContain("old"); // a swing high as a line isn't a key level for it
   });
@@ -355,6 +355,46 @@ describe("a QM sell on an engulfing candle at the QM line", () => {
   });
 });
 
+describe("a QM sell limit at the QM line", () => {
+  // the pullback after the break reaches the QM line (1.1085) at 15:00
+  const s = make({ ...qmSell, "0:15:00": [1.106, 1.1086, 1.1059, 1.1082] });
+  const tr = run(s, qcfg({ qmEntry: "line" })).trades[0];
+  it("sells at the QM line, with the stop above the Apex", () => {
+    expect(tr.m1).toMatchObject({ how: "line" });
+    expect(tr.m1!.limit).toBeCloseTo(1.1085, 6);
+    expect(tr.entry).toBeCloseTo(1.1085, 6);
+    expect(tr.entryT).toBe(at(15, 15)); // the 15:00 candle's close
+    expect(tr.stop).toBeCloseTo(1.1111, 6);
+    expect(tr.plannedR).toBeCloseTo((1.1085 - 1.1) / 0.0026, 6);
+  });
+  it("takes half at 50% and the rest at the range low", () => {
+    expect(tr.reason).toBe("tp2");
+    expect(tr.r).toBeCloseTo(0.5 * (0.0035 / 0.0026) + 0.5 * (0.0085 / 0.0026), 6);
+  });
+  it("the breakout retest would have sold lower, at 1.1070", () => {
+    const b = run(s, qcfg({ qmEntry: "both" })).trades[0];
+    expect(b.m1).toMatchObject({ how: "retest" });
+    expect(b.entry).toBeCloseTo(1.107, 6);
+  });
+  it("takes nothing when price doesn't come back to the QM line", () => {
+    expect(run(make(qmSell), qcfg({ qmEntry: "line" })).trades.length).toBe(0);
+  });
+  it("counts a loss when the candle that fills the limit also reaches the stop", () => {
+    const x = run(make({ ...qmSell, "0:15:00": [1.106, 1.111, 1.1059, 1.1082] }), qcfg({ qmEntry: "line" })).trades[0];
+    expect(x.m1).toMatchObject({ how: "line" });
+    expect(x.reason).toBe("stop");
+    expect(x.r).toBeCloseTo(-1, 6);
+  });
+  it("with the engulfing entry too, whichever comes first", () => {
+    expect(run(s, qcfg({ qmEntry: "lineEngulf" })).trades[0].m1).toMatchObject({ how: "line" });
+    // price stops just short of the QM line, and 15:15 engulfs the candle before
+    const e = make({ ...qmSell, "0:15:00": [1.106, 1.1084, 1.1059, 1.1082], "0:15:15": [1.1082, 1.1083, 1.1056, 1.1058] });
+    const x = run(e, qcfg({ qmEntry: "lineEngulf" })).trades[0];
+    expect(x.m1).toMatchObject({ how: "engulf" });
+    expect(x.entry).toBeCloseTo(1.1058, 6);
+  });
+});
+
 describe("a QM setup right now", () => {
   const s2 = make(later(qmSell, 1), 3);
   it("names the breakout level before the break", () => {
@@ -371,6 +411,22 @@ describe("a QM setup right now", () => {
     expect(st.order!.stop).toBeCloseTo(1.1111, 6);
     expect(st.order!.target).toBeCloseTo(1.1, 6);
     expect(st.m1!.qm).toMatchObject({ broke: true });
+  });
+  it("shows the sell limit at the QM line with the QM line entry", () => {
+    const st = run(upTo(s2, "1:14:45"), qcfg({ qmEntry: "lineEngulf" })).live!.setups.find((x) => x.tf === "h4" && x.dir === -1 && x.age === 0)!;
+    expect(st.stage).toBe("limit");
+    expect(st.order!.level).toBeCloseTo(1.1085, 6);
+    expect(st.order!.stop).toBeCloseTo(1.1111, 6);
+  });
+});
+
+describe("no trades against the daily structure", () => {
+  it("allows the trade's way and mixed, not the other way, whatever the weekly says", () => {
+    expect(structureAllows("dailyNotAgainst", -1, 1, -1)).toBe(true);
+    expect(structureAllows("dailyNotAgainst", -1, 1, 0)).toBe(true);
+    expect(structureAllows("dailyNotAgainst", -1, -1, 1)).toBe(false);
+    expect(structureAllows("dailyNotAgainst", 1, 0, 1)).toBe(true);
+    expect(structureAllows("dailyNotAgainst", 1, 1, -1)).toBe(false);
   });
 });
 

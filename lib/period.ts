@@ -18,6 +18,13 @@ export function monthStarts(from: number, to: number, max = 6): MonthStart[] {
   return out.slice(-max);
 }
 
+/** 1 January of the year the prices end in, when the prices start before it. */
+export function yearStart(from: number, to: number): MonthStart | null {
+  const y = new Date((to - 1) * 1000).getUTCFullYear();
+  const t = Date.UTC(y, 0, 1) / 1000;
+  return from < t && t < to ? { key: "year", t } : null;
+}
+
 /** The result from time `from` on: the trades entered since then, with that stretch's first 70% and last 30%. */
 export function sliceResult(r: RunResult, from: number): RunResult {
   if (from <= r.from) return r;

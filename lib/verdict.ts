@@ -10,7 +10,7 @@ export function verdict(res: RunResult, model1 = false) {
   const n = res.all.trades, total = res.all.totalR, late = res.unseen;
   if (!n) {
     const hint = model1
-      ? "Nothing got through every rule on these prices. Under Change rules, try the weekly or daily structure on its own, or more range candles."
+      ? "Nothing got through every rule on these prices. Under Change rules, try another structure rule, or add daily ranges."
       : "Nothing got through every rule. Try \"Every setup\" above, or switch a rule off.";
     return { line: "No trades with these rules.", notes: [hint], cautions: [] as string[] };
   }
